@@ -1,0 +1,4 @@
+// PARAMETERS
+sim = sims(dim=256,pupd=256,cond=3e-2);
+wfs = wfss(flength=30.,nxsub=32);
+dm  = dms();

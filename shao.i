@@ -1,5 +1,6 @@
 require,"yao_util.i"; // for zernike.
 require,"img.i";
+require,"yao.i";
 
 write,format="%s\n","2024 AO simulation demo";
 write,format="%s\n","New WFS model (with MLA, global)";
@@ -14,12 +15,12 @@ write,format="%s\n\n","> aoloop,wfs,dm,0.5,100,0.5,1.,disp=1;";
 include,"structures.i",1;
 
 /********************* FUNCTIONS *******************/
-func aoall(parfile,nit=,disp=)
+func aoall(parfile,nit=,disp=,verb=)
 {
 	aoread,parfile;
 	animate,1;
 	aocalib,wfs,dm;
-	aoloop,wfs,dm,0.5,(nit?nit:100),0.9,0.,disp=(disp?disp:0);
+	aoloop,wfs,dm,0.5,(nit?nit:100),0.9,0.,disp=(disp?disp:0),verb=(verb?verb:0);
 	animate,0;
 }
 
@@ -47,14 +48,14 @@ func aoread(parfile)
 func prep_fresnel(foc,d,lambda)
 {
 	extern pkern;
-	pkern = exp(1i*(2*pi/lambda)*d) * exp(-1i*pi*lambda*d*foc); 
+	pkern = roll(exp(1i*(2*pi/lambda)*d) * exp(-1i*pi*lambda*d*foc)); 
 }
 
 func fresnel(obj) {
 	tdim = dimsof(obj)(2);
-	tmp = roll(fft(obj,1));
+	tmp = fft(obj,1);
 	tmp *= pkern;
-	res = fft(roll(tmp),-1)/tdim^2.;
+	res = fft(tmp,-1)/tdim^2.;
 	return res;
 }
 
@@ -97,9 +98,9 @@ func wfsim(wfs,pup,pha)
 // Compute WFS image given WFS, pup and phase.
 {
 	obj = pup*(*wfs.emla)*exp(-1i*pha);
-	im  = abs(fresnel(obj))^2.;
-	wfs.im = &im;
-	return im;
+	im  = fresnel(obj);
+	wfs.im = &(im.re*im.re+im.im*im.im);
+	return *wfs.im;
 }
 
 func shwfs(wfs,pup,pha)
@@ -203,16 +204,26 @@ func aocalib(wfs,dm)
 	return cmat;
 }
 
+// func calpsf(pup,pha)
+// // 305 it/s (aoall,"examples/test.par",nit=100,disp=1)
+// {
+// 	bpup = bpha = array(0.,[2,2*sim.dim,2*sim.dim]);	
+// 	bpup(1:sim.dim,1:sim.dim) = pup;
+// 	bpha(1:sim.dim,1:sim.dim) = pha;
+// 	im = abs(fft(bpup*exp(1i*bpha)))^2.;
+// 	return roll(im);
+// }
+
 func calpsf(pup,pha)
+// 394 it/s (aoall,"examples/test.par",nit=100,disp=1)
 {
-	bpup = bpha = array(0.,[2,2*sim.dim,2*sim.dim]);	
-	bpup(1:sim.dim,1:sim.dim) = pup;
-	bpha(1:sim.dim,1:sim.dim) = pha;
-	im = abs(fft(bpup*exp(1i*bpha)))^2.;
-	return roll(im);
+	bpup = bpha = array(0.0f,[2,2*sim.dim,2*sim.dim]);	
+	bpup(1:sim.dim,1:sim.dim) = float(pup);
+	bpha(1:sim.dim,1:sim.dim) = float(pha);
+	return calc_psf_fast(bpup,bpha,scale=1,noswap=0);
 }
 
-func aoloop(wfs,dm,gain,nit,sturb,noise,disp=)
+func aoloop(wfs,dm,gain,nit,sturb,noise,disp=,verb=)
 {
 	leak = 0.99;
 	ps = fits_read("~/.yorick/data/bigs1.fits")*sturb;
@@ -222,7 +233,6 @@ func aoloop(wfs,dm,gain,nit,sturb,noise,disp=)
 	k = 0; avgstrehl = 0.;
 	tic;
 	for (n=1;n<=nit;n++) {
-		// dis = pup*0.; // external disturbance
 		dis = bilinear(ps,indgen(sim.dim)+n/2.,indgen(sim.dim),grid=1)/5.;
 		pha = dis-dmshape; // total phase after correction
 		sig = shwfs(wfs,pup,pha); // WFSing
@@ -232,16 +242,18 @@ func aoloop(wfs,dm,gain,nit,sturb,noise,disp=)
 		dmshape = *dm_shape(dm).shape;
 		pha = dis-dmshape; // total phase after correction
 		z = 64;
+		if (disp==0) continue;
 		if ((n%10)==1) {
 			im = calpsf(pup,pha);
 			strehl = max(im)/maxim*100.; 
 			if (n>10) { 
 				k++; avgstrehl += strehl;
-				write,format="\rStrehl inst = %.1f%%, avg = %.1f%%",strehl,avgstrehl/k;
+				if (verb) write,format="\rStrehl inst = %.1f%%, avg = %.1f%%",strehl,avgstrehl/k;
 			}
 		}
 		if (disp==1) tv,im(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z);
 		if (disp==1.5) tv,sqrt(im)(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z);
+		// 1.5 -> 100it/s, 1 -> 385 it/s. Sqrt very expensive!
 		if (disp==2) tv,dmshape*pup;
 		if (disp==3) tv,*wfs.im;
 		if (disp==4) tv,dis;
@@ -251,6 +263,6 @@ func aoloop(wfs,dm,gain,nit,sturb,noise,disp=)
 		if (disp==6.5) tv,sqrt((imav=imav+im)(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z));
 		if ((disp==6.5)&(n==10)) imav*=0;
 	}
-	write,"";
+	if (verb) write,"";
 	write,format="%.1f it/s\n",nit/tac();
 }
