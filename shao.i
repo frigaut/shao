@@ -1,6 +1,11 @@
 require,"yao_util.i"; // for zernike.
 require,"img.i";
 require,"yao.i";
+require,"svipc.i";
+
+my_shmid = 0x78080000 | getpid();
+shm_init,my_shmid,slots=2;
+zoom = 64;
 
 write,format="%s\n","2024 AO simulation demo";
 write,format="%s\n","New WFS model (with MLA, global)";
@@ -225,6 +230,7 @@ func calpsf(pup,pha)
 
 func aoloop(wfs,dm,gain,nit,sturb,noise,disp=,verb=)
 {
+	if (disp==[]) disp=0;
 	leak = 0.99;
 	ps = fits_read("~/.yorick/data/bigs1.fits")*sturb;
 	dmshape = pup*0.;
@@ -232,37 +238,61 @@ func aoloop(wfs,dm,gain,nit,sturb,noise,disp=,verb=)
 	imav = calpsf(pup,0); maxim = max(imav);
 	k = 0; avgstrehl = 0.;
 	tic;
+	data = float(*wfs.im);
+	shm_write,my_shmid,"data2display",&data,publish=1;
+	iteration=[0]; shm_write,my_shmid,"iteration",&iteration;
+	winkill; pause,200;
+	if (fork()==0) {
+		// I am the child for display
+		if (disp!=0) aodisp,disp;
+		quit;
+	}
+	// else I am the parent process, main loop
 	for (n=1;n<=nit;n++) {
-		dis = bilinear(ps,indgen(sim.dim)+n/2.,indgen(sim.dim),grid=1)/5.;
-		pha = dis-dmshape; // total phase after correction
+		tur = bilinear(ps,indgen(sim.dim)+n/2.,indgen(sim.dim),grid=1)/5.;
+		pha = tur-dmshape; // total phase after correction
 		sig = shwfs(wfs,pup,pha); // WFSing
 		sig += random_n(wfs.nsub*2)*noise; // WFS noise.
 		*dm.com = leak * (*dm.com) + gain * (cmat(,+)*sig(+)); // Update DM command.
 		*dm.com -= avg(*dm.com);
 		dmshape = *dm_shape(dm).shape;
-		pha = dis-dmshape; // total phase after correction
-		z = 64;
-		if (disp==0) continue;
-		if ((n%10)==1) {
-			im = calpsf(pup,pha);
-			strehl = max(im)/maxim*100.; 
-			if (n>10) { 
-				k++; avgstrehl += strehl;
-				if (verb) write,format="\rStrehl inst = %.1f%%, avg = %.1f%%",strehl,avgstrehl/k;
-			}
-		}
-		if (disp==1) tv,im(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z);
-		if (disp==1.5) tv,sqrt(im)(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z);
-		// 1.5 -> 100it/s, 1 -> 385 it/s. Sqrt very expensive!
-		if (disp==2) tv,dmshape*pup;
-		if (disp==3) tv,*wfs.im;
-		if (disp==4) tv,dis;
-		if (disp==5) tv,pha*pup;
-		if (disp==6) tv,(imav=imav+im)(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z);
-		if ((disp==6)&(n==10)) imav*=0;
-		if (disp==6.5) tv,sqrt((imav=imav+im)(1+sim.dim-z:sim.dim+z,1+sim.dim-z:sim.dim+z));
-		if ((disp==6.5)&(n==10)) imav*=0;
+		if (disp==1) data = float(pha);
+		if (disp==2) data = float(pha);
+		if (disp==3) data = float(*wfs.im);
+		if (disp==4) data = float(dmshape*pup);
+		if (disp==5) data = float(tur);
+		if (disp==6) data = float(pup*pha);
+		iteration=[n]; shm_write,my_shmid,"iteration",&iteration;
+		shm_write,my_shmid,"data2display",&data,publish=1;
 	}
 	if (verb) write,"";
 	write,format="%.1f it/s\n",nit/tac();
+	shm_free,my_shmid,"data2display"; // this triggers a warning, but it seems it's a bug.
+}
+
+func aodisp(disp)
+// normally handled by the child.
+{
+	window,wait=1;
+	animate,1;
+	k=0;
+	maxim = max(calpsf(pup,pup*0));
+	while (1) {
+		k++;
+		data = shm_read(my_shmid,"data2display",subscribe=2);
+		iter = shm_read(my_shmid,"iteration")(1);
+		if (numberof(data)==1) { break; }
+		if (disp<=2) {
+			im = calpsf(pup,data);
+			if (disp==1) tv,im(1+sim.dim-zoom:sim.dim+zoom,1+sim.dim-zoom:sim.dim+zoom);
+			if (disp==2) tv,sqrt(im(1+sim.dim-zoom:sim.dim+zoom,1+sim.dim-zoom:sim.dim+zoom));
+			strehl = max(im)/maxim*100.; 
+			avgstrehl += strehl;
+			pltitle,swrite(format="it %d S=%.1f%%, Savg=%.1f%%",iter,strehl,avgstrehl/k);
+		} else if (disp>1) {
+			tv,data;
+			pltitle,swrite(format="iteration %d",iter);
+		}
+	}
+	animate,0;
 }
