@@ -34,6 +34,8 @@ func aoall(parfile,nit=,disp=,verb=)
 func aoread(parfile)
 {
 	extern wfs,dm,sim,pup,debug;
+	extern parname;
+	parname = pathsplit(parfile,delim="/")(0);
 	include,parfile,1;
 	// fill default values
 	pup = float(dist(sim.dim,xc=sim.dim/2+0.5,yc=sim.dim/2+0.5)<(sim.pupd/2));
@@ -230,43 +232,64 @@ func calpsf(pup,pha)
 	return calc_psf_fast(bpup,bpha,scale=1,noswap=0);
 }
 
+func bilin(ar,x1,dim)
+{
+	i1 = long(floor(x1)); i2 = i1+dim-1; rx1 = float(x1-i1);
+	ar1 = ar(i1:i2,1:dim);
+	ar2 = ar(i1+1:i2+1,1:dim);
+	return (1.0f-rx1)*ar1+rx1*ar2;
+}
+
 func aoloop(wfs,dm,gain,nit,sturb,noise,disp=,verb=)
 {
 	if (disp==[]) disp=0;
 	leak = 0.99;
-	ps = fits_read("~/.yorick/data/bigs1.fits")*sturb;
+	ps = float(fits_read("~/.yorick/data/bigs1.fits")*sturb);
 	dmshape = pup*0.;
 	dm.com = &(array(0.,dm.nact));
 	imav = calpsf(pup,0); maxim = max(imav);
 	strehlv = array(0.0f,nit);
 	itv = array(0n,nit);
 	k = off = 0; avgstrehl = 0.;
-	tic;
 	winkill; pause,200;
 	if (fork()==0) {
 		// I am the child for display
 		if (disp!=0) status=aodisp();
 		quit;
 	}
+	t2 = t3 = t4 = t5 = 0.; tic;
 	// else I am the parent process, main loop
 	for (n=1;n<=nit;n++) {
+		tic,2;
 		off += 0.1; if ((off+sim.dim)>dimsof(ps)(2)) off=0;
-		turb = bilinear(ps,indgen(sim.dim)+off,indgen(sim.dim),grid=1)/5.;
+		// turb = bilinear(ps,indgen(sim.dim)+off,indgen(sim.dim),grid=1)/5.;
+		turb = bilin(ps,1+off,sim.dim)/5.;
+		// turb = 0;
 		pha = turb-dmshape; // total phase after correction
-		sig = shwfs(wfs,pup,pha); // WFSing
+		t2 += tac(2);
+		tic,3; 
+		sig = shwfs(wfs,pup,pha); 
 		sig += random_n(wfs.nsub*2)*noise; // WFS noise.
+		t3 += tac(3); // WFSing
+		tic,4;
 		*dm.com = leak * (*dm.com) + gain * (cmat(,+)*sig(+)); // Update DM command.
 		*dm.com -= avg(*dm.com);
 		dmshape = *dm_shape(dm).shape;
+		t4 += tac(4);
+		tic,5;
 		if (disp) {
 			data = float(*wfs.im); shm_write,my_shmid,"wfsim",&data;
 			data = float(turb); shm_write,my_shmid,"turb",&data;
 			data = float(dmshape); shm_write,my_shmid,"dmshape",&data;
 			iteration=[n]; shm_write,my_shmid,"iteration",&iteration,publish=1;
 		}
+		t5 += tac(5);
 	}
 	if (verb) write,"";
-	write,format="%.1f it/s\n",nit/tac();
+	write,format="%s: %.1f it/s, ",parname,nit/tac();
+	write,format="tur=%.1fμs, wfs=%.1fμs, mmul=%.1fμs, shm=%.1fμs (%.1f)\n",\
+	  t2*1e6/nit,t3*1e6/nit,t4*1e6/nit,t5*1e6/nit,nit/(t2+t3+t4);
+
 	if (disp) {
 		// this triggers a warning, but it seems it's a bug:
 		shm_free,my_shmid,"wfsim"; 
