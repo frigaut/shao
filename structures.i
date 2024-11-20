@@ -6,7 +6,7 @@ struct sims {
 	pointer imat;
 	pointer cmat;
 	pointer ev;
-}
+};
 
 struct wfss {
 	float   lambda;
@@ -26,7 +26,7 @@ struct wfss {
 	pointer im;
 	pointer signal;
 	pointer refmes;
-}
+};
 
 struct dms {
 	long    nxact;
