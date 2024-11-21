@@ -1,15 +1,18 @@
-require, "yao_util.i"; // for zernike.
+/********************* DEPENDENCIES **********************/
+require, "yao_util.i"; // for zernike
 require, "img.i";
 require, "yao.i";
 require, "svipc.i";
 require, "plvp.i";
 
+/******************* SHARED MEMORY INITS *****************/
 my_shmid = 0x78080000 | getpid();
 my_msqid = 0x71010000 | getpid();
 shm_init, my_shmid, slots = 6;
 msq_init, my_msqid;
-zoom = 64;
 
+zoom = 64;
+/************************* INTRO  ************************/
 write, format = "%s\n", "2024 AO simulation demo";
 write, format = "%s\n", "New WFS model (with MLA, global)";
 write, format = "%s\n", "New DM (spline)";
@@ -20,11 +23,12 @@ write, format = "%s\n", "> wfscalib,wfs";
 write, format = "%s\n", "> aocalib,wfs,dm";
 write, format = "%s\n\n", "> aoloop,wfs,dm,0.5,100,0.5,1.,disp=1;";
 
-/******************** STRUCTURES ******************/
+/********************** STRUCTURES ***********************/
 include, "structures.i", 1;
 
-/********************* FUNCTIONS *******************/
+/********************** FUNCTIONS ************************/
 func aoall(parfile, nit =, disp =, verb =) {
+	// integrated routine, read parfile, does calib and loop.
     aoread, parfile;
     animate, 1;
     aocalib, wfs, dm;
@@ -34,6 +38,7 @@ func aoall(parfile, nit =, disp =, verb =) {
 }
 
 func aoread(parfile) {
+	// read parfile and prep some variable.
     extern wfs, dm, sim, pup, debug;
     extern parname;
     parname = pathsplit(parfile, delim = "/")(0);
@@ -56,14 +61,16 @@ func aoread(parfile) {
     prepzernike, sim.dim, sim.pupd + 1;
 }
 
-/********************* FRESNEL *********************/
+/************************ FRESNEL ************************/
 func prep_fresnel(foc, d, lambda) {
+	// prep Fresnel propagation kernel
     extern pkern;
     pkern = roll(exp(1i * (2 * pi / lambda) * d) *
                  exp(-1i * pi * lambda * d * foc));
 }
 
 func fresnel(obj) {
+	// Actual Fresnel propagation
     tdim = dimsof(obj)(2);
     tmp = fft(obj, 1);
     tmp *= pkern;
@@ -71,7 +78,7 @@ func fresnel(obj) {
     return res;
 }
 
-/*********************** WFS  **********************/
+/************************** WFS  *************************/
 func cgwfs(im) {
     // Computes the cendroid of image sim
     sumim = sum(im);
@@ -134,7 +141,7 @@ func shwfs(wfs, pup, pha) {
     return wfssig(*);
 }
 
-/************************ DM ***********************/
+/************************** DM ***************************/
 func prep_dm(dm) {
     // Prepare the dm
     rad = dm.nxact / 2 + 1 + dm.margin;
@@ -156,7 +163,7 @@ func dm_shape(dm) {
     return dm;
 }
 
-/***************** CALIB AND AO LOOP ***************/
+/******************* CALIB AND AO LOOP *******************/
 func wfscalib(wfs) {
     // find the best WFS MLA focal length
     write, format = "%s\n", "Finding best focal length";
@@ -188,6 +195,7 @@ func wfscalib(wfs) {
 }
 
 func aocalib(wfs, dm) {
+	// AO calibration, WFS, DM and IMAT
     extern wref, cmat, imat;
     write, format = "%s\n", "Calibrating AO system";
     if (wfs._fl == 0) {
@@ -236,16 +244,6 @@ func aocalib(wfs, dm) {
     return cmat;
 }
 
-// func calpsf(pup,pha)
-// // 305 it/s (aoall,"examples/test.par",nit=100,disp=1)
-// {
-// 	bpup = bpha = array(0.,[2,2*sim.dim,2*sim.dim]);
-// 	bpup(1:sim.dim,1:sim.dim) = pup;
-// 	bpha(1:sim.dim,1:sim.dim) = pha;
-// 	im = abs(fft(bpup*exp(1i*bpha)))^2.;
-// 	return roll(im);
-// }
-
 func calpsf(pup, pha) {
     // 394 it/s (aoall,"examples/test.par",nit=100,disp=1)
     bpup = bpha = array(0.0f, [ 2, 2 * sim.dim, 2 * sim.dim ]);
@@ -255,6 +253,7 @@ func calpsf(pup, pha) {
 }
 
 func bilin(ar, x1, dim) {
+    // quick interpolation
     i1 = long(floor(x1));
     i2 = i1 + dim - 1;
     rx1 = float(x1 - i1);
@@ -264,6 +263,7 @@ func bilin(ar, x1, dim) {
 }
 
 func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
+    // The loop
     if (disp == []) disp = 0;
     my_semid = 0x7dcb0000 | getpid();
     sem_init, my_semid, nums = 3;
@@ -307,7 +307,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
         tic, 3;
         sig = shwfs(wfs, pup, pha);
         sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
-        t3 += tac(3); // WFSing
+        t3 += tac(3);                          // WFSing
         tic, 4;
         // read from aommul the previous dm update commands:
         sem_take, my_semid, 1; // wait for ready signal
@@ -324,8 +324,6 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
             shm_write, my_shmid, "wfsim", &data;
             data = float(turb);
             shm_write, my_shmid, "turb", &data;
-            // data = float(dmshape);
-            // shm_write, my_shmid, "dmshape", &data;
             iteration = [n];
             shm_write, my_shmid, "iteration", &iteration, publish = 1;
         }
@@ -334,8 +332,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     if (verb) write, "";
     write, format = "%s: %.1f it/s, ", parname, nit / tac();
     write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n",
-           t2 * 1e6 / nit, t3 * 1e6 / nit, t4 * 1e6 / nit,
-           nit / (t2 + t3 + t4);
+           t2 * 1e6 / nit, t3 * 1e6 / nit, t4 * 1e6 / nit, nit / (t2 + t3 + t4);
 
     // give some time for child to quit (prompt)
     pause, 100;
@@ -348,12 +345,13 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     sem_cleanup, my_semid;
 }
 
-
 func aommul(void) {
-	dmshape = float(pup*0);
+    // normally handled by a child.
+    // Reconstruction and DM shape calculations
+    dmshape = float(pup * 0);
     while (1) {
         // publish result:
-		data = float(dmshape);
+        data = float(dmshape);
         shm_write, my_shmid, "dmshape", &data;
         // and give semaphore:
         sem_give, my_semid, 1;
@@ -371,51 +369,57 @@ func aommul(void) {
     }
 }
 
-func aodisp(void)
-// normally handled by the child.
-{   winkill;
+func aodisp(void) {
+    // normally handled by the child.
+    winkill;
     pltitle_height = 7;
     dy = 0.005;
-	window,style="4vp-2.gs",dpi=180,wait=1; pause,200;
-	plsys,1; animate,1; k=0;
+    window, style = "4vp-2.gs", dpi = 180, wait = 1;
+    pause, 200;
+    plsys, 1;
+    animate, 1;
+    k = 0;
     tic;
-	while (1) {
-		k++;
-		s = sem_take(my_semid, 2, wait = 0);
+    while (1) {
+        k++;
+        s = sem_take(my_semid, 2, wait = 0);
         if (s == 0) break;
-		iter = shm_read(my_shmid,"iteration",subscribe=2)(1);
-		if (iter==-1) break;
-		wfsim = shm_read(my_shmid,"wfsim");
-		turb = shm_read(my_shmid,"turb");
-		dmshape = shm_read(my_shmid,"dmshape");
-		pha = turb-dmshape;
-		if (numberof(wfsim)==1) { break; }
-		fma;
-		//WFS IM and others
-		plsys,3;
-		pli,wfsim;
-		pltitle_vp,swrite(format="WFS, it=%d, it/s=%.1f",iter,iter/tac()),dy;
-		// PSF
-		im = calpsf(pup,pha);
-		plsys,4;
-		pli,sqrt(im(1+sim.dim-zoom:sim.dim+zoom,1+sim.dim-zoom:sim.dim+zoom));
-		strehl = max(im)/maxim*100.;
+        iter = shm_read(my_shmid, "iteration", subscribe = 2)(1);
+        if (iter == -1) break;
+        wfsim = shm_read(my_shmid, "wfsim");
+        turb = shm_read(my_shmid, "turb");
+        dmshape = shm_read(my_shmid, "dmshape");
+        pha = turb - dmshape;
+        if (numberof(wfsim) == 1) { break; }
+        fma;
+        // WFS IM and others
+        plsys, 3;
+        pli, wfsim;
+        pltitle_vp,
+            swrite(format = "WFS, it=%d, it/s=%.1f", iter, iter / tac()), dy;
+        // PSF
+        im = calpsf(pup, pha);
+        plsys, 4;
+        pli, sqrt(im(1 + sim.dim - zoom : sim.dim + zoom,
+                     1 + sim.dim - zoom : sim.dim + zoom));
+        strehl = max(im) / maxim * 100.;
         itv(k) = iter;
         strehlv(k) = strehl;
-		avgstrehl += strehl;
-		pltitle_vp,swrite(format="S=%.1f%%, Savg=%.1f%%",strehl,avgstrehl/k),dy;
+        avgstrehl += strehl;
+        pltitle_vp,
+            swrite(format = "S=%.1f%%, Savg=%.1f%%", strehl, avgstrehl / k), dy;
         // Residual phase
-		plsys,1;
-		mp = max(pha(where(pup)));
-		pli,(pha-mp)*pup;
-		pltitle_vp,"Residual phase",dy;
+        plsys, 1;
+        mp = max(pha(where(pup)));
+        pli, (pha - mp) * pup;
+        pltitle_vp, "Residual phase", dy;
         // Strehl vs iteration
-        plsys,2;
-        plg,strehlv(1:k),itv(1:k);
-        range,0;
-		pltitle_vp,"Strehl vs iteration",2*dy;
-        xytitles_vp,"Iteration","",[0.,0.025];
-	}
-	plsys,1;
-	animate,0;
+        plsys, 2;
+        plg, strehlv(1 : k), itv(1 : k);
+        range, 0;
+        pltitle_vp, "Strehl vs iteration", 2 * dy;
+        xytitles_vp, "Iteration", "", [ 0., 0.025 ];
+    }
+    plsys, 1;
+    animate, 0;
 }
