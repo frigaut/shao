@@ -8,7 +8,10 @@ func aodisp(void)
     tic;
 	while (1) {
 		k++;
+		s = sem_take(my_semid, 2, wait = 0);
+        if (s == 0) break;
 		iter = shm_read(my_shmid,"iteration",subscribe=2)(1);
+		if (iter==-1) break;
 		wfsim = shm_read(my_shmid,"wfsim");
 		turb = shm_read(my_shmid,"turb");
 		dmshape = shm_read(my_shmid,"dmshape");
@@ -23,7 +26,7 @@ func aodisp(void)
 		im = calpsf(pup,pha);
 		plsys,4;
 		pli,sqrt(im(1+sim.dim-zoom:sim.dim+zoom,1+sim.dim-zoom:sim.dim+zoom));
-		strehl = max(im)/maxim*100.; 
+		strehl = max(im)/maxim*100.;
         itv(k) = iter;
         strehlv(k) = strehl;
 		avgstrehl += strehl;

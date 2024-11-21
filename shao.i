@@ -6,7 +6,9 @@ require, "plvp.i";
 require, "shao_disp.i";
 
 my_shmid = 0x78080000 | getpid();
-shm_init, my_shmid, slots = 4;
+my_msqid = 0x71010000 | getpid();
+shm_init, my_shmid, slots = 6;
+msq_init, my_msqid;
 zoom = 64;
 
 write, format = "%s\n", "2024 AO simulation demo";
@@ -74,8 +76,7 @@ func fresnel(obj) {
 func cgwfs(im) {
     // Computes the cendroid of image sim
     sumim = sum(im);
-    if (sumim <= 0.)
-        return [ 0., 0. ];
+    if (sumim <= 0.) return [ 0., 0. ];
     gx = sum(im * (*wfs.xyc)(, , 1)) / sumim;
     gy = sum(im * (*wfs.xyc)(, , 2)) / sumim;
     return [ gx, gy ];
@@ -177,16 +178,14 @@ func wfscalib(wfs) {
             maxmax = tmax;
             bde = de;
         }
-        if (tmax < (maxmax * 0.8))
-            break;
+        if (tmax < (maxmax * 0.8)) break;
     }
     wfs._fl = bde;
     write, format = "Best focal length [AU] = %.1f\n", wfs._fl;
     write, format = "max(abs(grad(mla)))=%f\n",
            max(abs(*wfs.mla - roll(*wfs.mla, [ 0, 1 ])));
     prep_wfs, wfs;
-    if (debug)
-        tv, wfsim(wfs, pup, pup * 0.);
+    if (debug) tv, wfsim(wfs, pup, pup * 0.);
 }
 
 func aocalib(wfs, dm) {
@@ -266,8 +265,9 @@ func bilin(ar, x1, dim) {
 }
 
 func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
-    if (disp == [])
-        disp = 0;
+    if (disp == []) disp = 0;
+    my_semid = 0x7dcb0000 | getpid();
+    sem_init, my_semid, nums = 3;
     leak = 0.99;
     ps = float(fits_read("~/.yorick/data/bigs1.fits") * sturb);
     dmshape = pup * 0.;
@@ -280,33 +280,47 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     avgstrehl = 0.;
     winkill;
     pause, 200;
+    // SHM DISPLAYS:
     if (fork() == 0) {
         // I am the child for display
-        if (disp != 0)
-            status = aodisp();
+        if (disp != 0) status = aodisp();
+        if (debug) write, format = "%s\n", "Display fork quitting";
         quit;
     }
+    // SHM MMUL
+    if (fork() == 0) {
+        // I am the child for matrix mutiply
+        status = aommul();
+        if (debug) write, format = "%s\n", "Matrix multiply fork quitting";
+        quit;
+    }
+    // else main aoloop, WFS function
     t2 = t3 = t4 = t5 = 0.;
     tic;
     // else I am the parent process, main loop
     for (n = 1; n <= nit; n++) {
         tic, 2;
         off += 0.1;
-        if ((off + sim.dim) > dimsof(ps)(2))
-            off = 0;
-        // turb =
-        // bilinear(ps,indgen(sim.dim)+off,indgen(sim.dim),grid=1)/5.;
+        if ((off + sim.dim) > dimsof(ps)(2)) off = 0;
         turb = bilin(ps, 1 + off, sim.dim) / 5.;
-        // turb = 0;
         pha = turb - dmshape; // total phase after correction
         t2 += tac(2);
         tic, 3;
         sig = shwfs(wfs, pup, pha);
         sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
-        t3 += tac(3);                          // WFSing
+        // read from aommul the previous dm update commands:
+        sem_take, my_semid, 1;
+        com_update = shm_read(my_shmid, "dm_update");
+        // write signal on shm for aommul to compute the next DM command update
+        shm_write, my_shmid, "wfs_signal", &sig;
+        sem_give, my_semid, 0;
+        if (n == nit) {
+            sem_give, my_semid, 2; // for aommul
+            sem_give, my_semid, 2; // for aodisp
+        }
+        t3 += tac(3); // WFSing
         tic, 4;
-        *dm.com = leak * (*dm.com) +
-                  gain * (cmat(, +) * sig(+)); // Update DM command.
+        *dm.com = leak * (*dm.com) + gain * com_update; // Update DM command.
         *dm.com -= avg(*dm.com);
         dmshape = *dm_shape(dm).shape;
         t4 += tac(4);
@@ -323,17 +337,50 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
         }
         t5 += tac(5);
     }
-    if (verb)
-        write, "";
+    if (verb) write, "";
     write, format = "%s: %.1f it/s, ", parname, nit / tac();
     write, format = "tur=%.1fμs, wfs=%.1fμs, mmul=%.1fμs, shm=%.1fμs (%.1f)\n",
            t2 * 1e6 / nit, t3 * 1e6 / nit, t4 * 1e6 / nit, t5 * 1e6 / nit,
            nit / (t2 + t3 + t4);
 
     if (disp) {
-        // this triggers a warning, but it seems it's a bug:
         shm_free, my_shmid, "wfsim";
         shm_free, my_shmid, "turb";
         shm_free, my_shmid, "dmshape";
+    }
+    shm_free, my_shmid, "dm_update";
+    shm_free, my_shmid, "wfs_signal";
+    sem_cleanup, my_semid;
+    // give some time for child to quit (prompt)
+    pause, 100;
+}
+
+/*
+20241120-16:52 : aoloop prior to shm of matrix multiply: 112 it/s
+after mmul shm: 148 it/s - not too bad.
+sh6: 2560
+sh8: 1673
+sh16: 661
+test: 853
+sh32: 165
+sh40: 158
+sh64: 33.5
+*/
+
+func aommul(void) {
+    dmu = array(0., dm.nact);
+    while (1) {
+        // publish result:
+        shm_write, my_shmid, "dm_update", &dmu;
+        // give semaphore:
+        sem_give, my_semid, 1;
+        s = sem_take(my_semid, 0);
+        // slopes ready, fetch them:
+        sig = shm_read(my_shmid, "wfs_signal");
+        // compute corresponding dm update:
+        dmu = cmat(, +) * sig(+);
+        // check if "end" semaphore has been set
+        s = sem_take(my_semid, 2, wait = 0);
+        if (s == 0) break;
     }
 }

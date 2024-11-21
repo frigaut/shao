@@ -1,3 +1,5 @@
 UseTab: Never
 IndentWidth: 4
 TabWidth: 4
+AllowShortBlocksOnASingleLine: Always
+AllowShortIfStatementsOnASingleLine: WithoutElse
