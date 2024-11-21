@@ -3,7 +3,6 @@ require, "img.i";
 require, "yao.i";
 require, "svipc.i";
 require, "plvp.i";
-require, "shao_disp.i";
 
 my_shmid = 0x78080000 | getpid();
 my_msqid = 0x71010000 | getpid();
@@ -280,8 +279,6 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     avgstrehl = 0.;
     winkill;
     pause, 200;
-    tic, 6;
-    t6 = array(0., [ 2, 10, 5 ]);
     // SHM DISPLAYS:
     if (fork() == 0) {
         // I am the child for display
@@ -301,7 +298,6 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     tic;
     // else I am the parent process, main loop
     for (n = 1; n <= nit; n++) {
-        if (n <= 5) t6(1, n) = tac(6);
         tic, 2;
         off += 0.1;
         if ((off + sim.dim) > dimsof(ps)(2)) off = 0;
@@ -309,31 +305,20 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
         pha = turb - dmshape; // total phase after correction
         t2 += tac(2);
         tic, 3;
-        if (n <= 5) t6(2, n) = tac(6);
         sig = shwfs(wfs, pup, pha);
         sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
+        t3 += tac(3); // WFSing
+        tic, 4;
         // read from aommul the previous dm update commands:
         sem_take, my_semid, 1; // wait for ready signal
-        if (n <= 5) t6(3, n) = tac(6);
-        // com_update = shm_read(my_shmid, "dm_update");
         dmshape = shm_read(my_shmid, "dmshape");
         // write signal on shm for aommul to compute the next DM command update
-        if (n <= 5) t6(4, n) = tac(6);
         shm_write, my_shmid, "wfs_signal", &sig;
         sem_give, my_semid, 0;
         if (n == nit) {
             sem_give, my_semid, 2; // for aommul
             sem_give, my_semid, 2; // for aodisp
         }
-        t3 += tac(3); // WFSing
-        tic, 4;
-        if (n <= 5) t6(5, n) = tac(6);
-        // *dm.com = leak * (*dm.com) + gain * com_update; // Update DM command.
-        // *dm.com -= avg(*dm.com);
-        // dmshape = *dm_shape(dm).shape;
-        if (n <= 5) t6(6, n) = tac(6);
-        t4 += tac(4);
-        tic, 5;
         if (disp) {
             data = float(*wfs.im);
             shm_write, my_shmid, "wfsim", &data;
@@ -344,67 +329,93 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
             iteration = [n];
             shm_write, my_shmid, "iteration", &iteration, publish = 1;
         }
-        t5 += tac(5);
+        t4 += tac(4);
     }
     if (verb) write, "";
     write, format = "%s: %.1f it/s, ", parname, nit / tac();
-    write, format = "tur=%.1fμs, wfs=%.1fμs, mmul=%.1fμs, shm=%.1fμs (%.1f)\n",
-           t2 * 1e6 / nit, t3 * 1e6 / nit, t4 * 1e6 / nit, t5 * 1e6 / nit,
+    write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n",
+           t2 * 1e6 / nit, t3 * 1e6 / nit, t4 * 1e6 / nit,
            nit / (t2 + t3 + t4);
 
+    // give some time for child to quit (prompt)
     pause, 100;
     if (disp) {
         shm_free, my_shmid, "wfsim";
         shm_free, my_shmid, "turb";
-        shm_free, my_shmid, "dmshape";
     }
-    // shm_free, my_shmid, "dm_update";
     shm_free, my_shmid, "dmshape";
     shm_free, my_shmid, "wfs_signal";
     sem_cleanup, my_semid;
-    // give some time for child to quit (prompt)
-    fits_write, "aoloop.fits", t6, overwrite = 1;
 }
 
-/*
-20241120-16:52 : aoloop prior to shm of matrix multiply: 112 it/s
-after mmul shm: 148 it/s - not too bad.
-sh6: 2560
-sh8: 1673
-sh16: 661
-test: 853
-sh32: 165
-sh40: 158
-sh64: 33.5
-*/
 
 func aommul(void) {
-    // dmu = array(0., dm.nact);
 	dmshape = float(pup*0);
-    k = 0;
     while (1) {
-        k++;
         // publish result:
-        if (k <= 5) t6(1, k) = tac(6);
-        // shm_write, my_shmid, "dm_update", &dmu;
 		data = float(dmshape);
         shm_write, my_shmid, "dmshape", &data;
-        // give semaphore:
+        // and give semaphore:
         sem_give, my_semid, 1;
-        if (k <= 5) t6(2, k) = tac(6);
         s = sem_take(my_semid, 0);
         // slopes ready, fetch them:
         sig = shm_read(my_shmid, "wfs_signal");
-        if (k <= 5) t6(3, k) = tac(6);
-        // compute corresponding dm update:
+        // compute corresponding dm update and shape:
         com_update = cmat(, +) * sig(+);
         *dm.com = leak * *dm.com + gain * com_update; // Update DM command.
         *dm.com -= avg(*dm.com);
         dmshape = float(*dm_shape(dm).shape);
         // check if "end" semaphore has been set
-        if (k <= 5) t6(4, k) = tac(6);
         s = sem_take(my_semid, 2, wait = 0);
         if (s == 0) break;
     }
-    fits_write, "aommul.fits", t6, overwrite = 1;
+}
+
+func aodisp(void)
+// normally handled by the child.
+{   winkill;
+    pltitle_height = 7;
+    dy = 0.005;
+	window,style="4vp-2.gs",dpi=180,wait=1; pause,200;
+	plsys,1; animate,1; k=0;
+    tic;
+	while (1) {
+		k++;
+		s = sem_take(my_semid, 2, wait = 0);
+        if (s == 0) break;
+		iter = shm_read(my_shmid,"iteration",subscribe=2)(1);
+		if (iter==-1) break;
+		wfsim = shm_read(my_shmid,"wfsim");
+		turb = shm_read(my_shmid,"turb");
+		dmshape = shm_read(my_shmid,"dmshape");
+		pha = turb-dmshape;
+		if (numberof(wfsim)==1) { break; }
+		fma;
+		//WFS IM and others
+		plsys,3;
+		pli,wfsim;
+		pltitle_vp,swrite(format="WFS, it=%d, it/s=%.1f",iter,iter/tac()),dy;
+		// PSF
+		im = calpsf(pup,pha);
+		plsys,4;
+		pli,sqrt(im(1+sim.dim-zoom:sim.dim+zoom,1+sim.dim-zoom:sim.dim+zoom));
+		strehl = max(im)/maxim*100.;
+        itv(k) = iter;
+        strehlv(k) = strehl;
+		avgstrehl += strehl;
+		pltitle_vp,swrite(format="S=%.1f%%, Savg=%.1f%%",strehl,avgstrehl/k),dy;
+        // Residual phase
+		plsys,1;
+		mp = max(pha(where(pup)));
+		pli,(pha-mp)*pup;
+		pltitle_vp,"Residual phase",dy;
+        // Strehl vs iteration
+        plsys,2;
+        plg,strehlv(1:k),itv(1:k);
+        range,0;
+		pltitle_vp,"Strehl vs iteration",2*dy;
+        xytitles_vp,"Iteration","",[0.,0.025];
+	}
+	plsys,1;
+	animate,0;
 }
