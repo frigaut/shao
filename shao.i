@@ -280,6 +280,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     avgstrehl = 0.;
     winkill;
     pause, 200;
+    tic, 6;
+    t6 = array(0., [ 2, 10, 5 ]);
     // SHM DISPLAYS:
     if (fork() == 0) {
         // I am the child for display
@@ -299,6 +301,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
     tic;
     // else I am the parent process, main loop
     for (n = 1; n <= nit; n++) {
+        if (n <= 5) t6(1, n) = tac(6);
         tic, 2;
         off += 0.1;
         if ((off + sim.dim) > dimsof(ps)(2)) off = 0;
@@ -306,12 +309,16 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
         pha = turb - dmshape; // total phase after correction
         t2 += tac(2);
         tic, 3;
+        if (n <= 5) t6(2, n) = tac(6);
         sig = shwfs(wfs, pup, pha);
         sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
         // read from aommul the previous dm update commands:
-        sem_take, my_semid, 1;
-        com_update = shm_read(my_shmid, "dm_update");
+        sem_take, my_semid, 1; // wait for ready signal
+        if (n <= 5) t6(3, n) = tac(6);
+        // com_update = shm_read(my_shmid, "dm_update");
+        dmshape = shm_read(my_shmid, "dmshape");
         // write signal on shm for aommul to compute the next DM command update
+        if (n <= 5) t6(4, n) = tac(6);
         shm_write, my_shmid, "wfs_signal", &sig;
         sem_give, my_semid, 0;
         if (n == nit) {
@@ -320,9 +327,11 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
         }
         t3 += tac(3); // WFSing
         tic, 4;
-        *dm.com = leak * (*dm.com) + gain * com_update; // Update DM command.
-        *dm.com -= avg(*dm.com);
-        dmshape = *dm_shape(dm).shape;
+        if (n <= 5) t6(5, n) = tac(6);
+        // *dm.com = leak * (*dm.com) + gain * com_update; // Update DM command.
+        // *dm.com -= avg(*dm.com);
+        // dmshape = *dm_shape(dm).shape;
+        if (n <= 5) t6(6, n) = tac(6);
         t4 += tac(4);
         tic, 5;
         if (disp) {
@@ -330,8 +339,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
             shm_write, my_shmid, "wfsim", &data;
             data = float(turb);
             shm_write, my_shmid, "turb", &data;
-            data = float(dmshape);
-            shm_write, my_shmid, "dmshape", &data;
+            // data = float(dmshape);
+            // shm_write, my_shmid, "dmshape", &data;
             iteration = [n];
             shm_write, my_shmid, "iteration", &iteration, publish = 1;
         }
@@ -343,16 +352,18 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =) {
            t2 * 1e6 / nit, t3 * 1e6 / nit, t4 * 1e6 / nit, t5 * 1e6 / nit,
            nit / (t2 + t3 + t4);
 
+    pause, 100;
     if (disp) {
         shm_free, my_shmid, "wfsim";
         shm_free, my_shmid, "turb";
         shm_free, my_shmid, "dmshape";
     }
-    shm_free, my_shmid, "dm_update";
+    // shm_free, my_shmid, "dm_update";
+    shm_free, my_shmid, "dmshape";
     shm_free, my_shmid, "wfs_signal";
     sem_cleanup, my_semid;
     // give some time for child to quit (prompt)
-    pause, 100;
+    fits_write, "aoloop.fits", t6, overwrite = 1;
 }
 
 /*
@@ -368,19 +379,32 @@ sh64: 33.5
 */
 
 func aommul(void) {
-    dmu = array(0., dm.nact);
+    // dmu = array(0., dm.nact);
+	dmshape = float(pup*0);
+    k = 0;
     while (1) {
+        k++;
         // publish result:
-        shm_write, my_shmid, "dm_update", &dmu;
+        if (k <= 5) t6(1, k) = tac(6);
+        // shm_write, my_shmid, "dm_update", &dmu;
+		data = float(dmshape);
+        shm_write, my_shmid, "dmshape", &data;
         // give semaphore:
         sem_give, my_semid, 1;
+        if (k <= 5) t6(2, k) = tac(6);
         s = sem_take(my_semid, 0);
         // slopes ready, fetch them:
         sig = shm_read(my_shmid, "wfs_signal");
+        if (k <= 5) t6(3, k) = tac(6);
         // compute corresponding dm update:
-        dmu = cmat(, +) * sig(+);
+        com_update = cmat(, +) * sig(+);
+        *dm.com = leak * *dm.com + gain * com_update; // Update DM command.
+        *dm.com -= avg(*dm.com);
+        dmshape = float(*dm_shape(dm).shape);
         // check if "end" semaphore has been set
+        if (k <= 5) t6(4, k) = tac(6);
         s = sem_take(my_semid, 2, wait = 0);
         if (s == 0) break;
     }
+    fits_write, "aommul.fits", t6, overwrite = 1;
 }
