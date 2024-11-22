@@ -58,6 +58,24 @@ func aoread(parfile) {
   prepzernike, sim.dim, sim.pupd + 1;
 }
 
+func shaosave(fname) {
+  /* DOCUMENT
+  Saves all session variables in file (extension ".shao").
+  */
+  if (fname == []) fname = strip_file_extension(parname);
+  if (!strmatch(fname, ".shao")) fname += ".shao";
+  save, createb(fname);
+}
+
+func shaorestore(fname) {
+  /* DOCUMENT
+  Restore all session variables from file (extension ".shao").
+  */
+  if (fname == []) error, "shaorestore,filename";
+  if (!strmatch(fname, ".shao")) fname += ".shao";
+  restore, openb(fname);
+}
+
 /************************ FRESNEL ************************/
 func prep_fresnel(foc, d, lambda) {
   // prep Fresnel propagation kernel
@@ -75,15 +93,6 @@ func fresnel(obj) {
 }
 
 /************************** WFS  *************************/
-func cgwfs(im) {
-  // Computes the cendroid of image sim
-  sumim = sum(im);
-  if (sumim <= 0.) return [ 0., 0. ];
-  gx = sum(im * (*wfs.xyc)(, , 1)) / sumim;
-  gy = sum(im * (*wfs.xyc)(, , 2)) / sumim;
-  return [ gx, gy ];
-}
-
 func prep_wfs(wfs) {
   // prep the wfs, precompute some generic arrays
   one = dist(wfs.ppsub, xc = wfs.ppsub / 2 + 0.5, yc = wfs.ppsub / 2 + 0.5) ^
@@ -105,6 +114,15 @@ func prep_wfs(wfs) {
   wfs.foc = &((1. / wfs.lambda) * (dist(sim.dim) / (sim.dim / (wfs.ppsub / 32.))) ^ 2.);
   status = prep_fresnel(*wfs.foc, wfs._fl, wfs.lambda);
   return wfs;
+}
+
+func cgwfs(im) {
+  // Computes the cendroid of image sim
+  sumim = sum(im);
+  if (sumim <= 0.) return [ 0., 0. ];
+  gx = sum(im * (*wfs.xyc)(, , 1)) / sumim;
+  gy = sum(im * (*wfs.xyc)(, , 2)) / sumim;
+  return [ gx, gy ];
 }
 
 func wfsim(wfs, pup, pha) {
@@ -303,8 +321,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     t2 += tac(2);
     tic, 3;
     sig = shwfs(wfs, pup, pha);
-    sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
-    t3 += tac(3);                          // WFSing
+    if (noise) sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
+    t3 += tac(3);                                     // WFSing
     tic, 4;
     // read from aommul the previous dm update commands:
     sem_take, my_semid, 1; // wait for ready signal
