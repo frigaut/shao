@@ -47,3 +47,14 @@ sh32.par: 187.3 it/s, tur=296.5μs, wfs=5039.1μs, mmul=0.7μs, shm=0.6μs (187.
 sh40.par: 185.9 it/s, tur=271.6μs, wfs=5102.9μs, mmul=0.7μs, shm=0.6μs (186.0)
 sh64.par: 35.7 it/s, tur=1156.4μs, wfs=26816.6μs, mmul=1.1μs, shm=0.7μs (35.7)
 ```
+
+```ad-note
+v0.3.5
+sh6.par: 3254.6 it/s, tur=14.9μs, wfs=263.7μs, shm=26.4μs (3278.9)
+sh8.par: 2142.3 it/s, tur=16.5μs, wfs=430.4μs, shm=17.6μs (2152.7)
+test.par: 1100.6 it/s, tur=20.8μs, wfs=865.1μs, shm=20.6μs (1103.2)
+sh16.par: 816.2 it/s, tur=22.4μs, wfs=1175.6μs, shm=25.1μs (817.6)
+sh32.par: 191.5 it/s, tur=70.1μs, wfs=5106.1μs, shm=43.5μs (191.6)
+sh40.par: 194.1 it/s, tur=69.2μs, wfs=5034.2μs, shm=44.9μs (194.2)
+sh64.par: 36.0 it/s, tur=256.8μs, wfs=24381.9μs, shm=3132.3μs (36.0)
+```

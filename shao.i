@@ -42,6 +42,7 @@ func aoread(parfile) {
   extern parname;
   parname = pathsplit(parfile, delim = "/")(0);
   include, parfile, 1;
+  write, format = "\nReading \"%s\"\n", parfile;
   // fill default values
   pup = float(dist(sim.dim, xc = sim.dim / 2 + 0.5, yc = sim.dim / 2 + 0.5) < (sim.pupd / 2));
 
@@ -181,7 +182,7 @@ func wfscalib(wfs) {
   /* DOCUMENT
   Find the best WFS MLA focal length
   */
-  write, format = "%s\n", "Finding best focal length";
+  write, format = "%s", "Finding best focal length";
   de = wfs.flength;
   step = wfs.flength / 20.;
   maxmax = 0.;
@@ -202,10 +203,11 @@ func wfscalib(wfs) {
     if (tmax < (maxmax * 0.8)) break;
   }
   wfs._fl = bde;
-  write, format = "Best focal length [AU] = %.1f\n", wfs._fl;
-  write, format = "max(abs(grad(mla)))=%f\n", max(abs(*wfs.mla - roll(*wfs.mla, [ 0, 1 ])));
+  write, format = " ➜ %.1f [Arbitrary Units]\n", wfs._fl;
+  if (debug >= 10)
+    write, format = "max(abs(grad(mla)))=%f\n", max(abs(*wfs.mla - roll(*wfs.mla, [ 0, 1 ])));
   prep_wfs, wfs;
-  if (debug) tv, wfsim(wfs, pup, pup * 0.);
+  if (debug > 1) tv, wfsim(wfs, pup, pup * 0.);
 }
 
 func aocalib(wfs, dm) {
@@ -221,7 +223,7 @@ func aocalib(wfs, dm) {
   prep_wfs, wfs;
   prep_dm, dm;
   // do imat:
-  write, format = "%s\n", "Measuring iMat";
+  write, format = "%s", "Measuring iMat...";
   dm.com = &(array(0., dm.nact));
   imat = array(0., [ 2, wfs.nsub * 2, dm.nact ]);
   wfs.refmes = &(shwfs(wfs, pup, pup * 0));
@@ -241,7 +243,7 @@ func aocalib(wfs, dm) {
   aresp = imat(rms, );                                  // actuator response
   ival = where(aresp >= (max(aresp) * wfs.threshresp)); // valid actuator idx based on response
   iext = where(aresp < (max(aresp) * wfs.threshresp));  // idx of actuators to extrapolate
-  write, format = "%d actuators filtered out of %d\n", numberof(iext), dm.nact;
+  write, format = "%d actuators filtered out of %d; ", numberof(iext), dm.nact;
   imatval = imat(, ival); // imat for valid actuators
   ev = SVdec(imatval, u, vt);
   w = where((ev / max(ev)) > sim.cond);
@@ -283,7 +285,11 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   */
   if (disp == []) disp = 0;
   my_semid = 0x7dcb0000 | getpid();
-  sem_init, my_semid, nums = 3;
+  sem_init, my_semid, nums = 4;
+  // sem 0: WFS signal ready from aoloop()
+  // sem 1: DM command / dm shape ready from aommul()
+  // sem 2: End of loop (nit reached)
+  // sem 3: Turbulence/phase screen ready from aoscreens()
   leak = 0.99;
   ps = float(fits_read("~/.yorick/data/bigs1.fits") * sturb);
   dmshape = pup * 0.;
@@ -310,16 +316,23 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     if (debug) write, format = "%s\n", "Matrix multiply fork quitting";
     quit;
   }
+  // SHM phase screens
+  if (fork() == 0) {
+    // I am the child for matrix mutiply
+    status = aoscreens();
+    if (debug) write, format = "%s\n", "Phase screen fork quitting";
+    quit;
+  }
   // else main aoloop, WFS function
   t2 = t3 = t4 = t5 = 0.;
   tic;
   // else I am the parent process, main loop
   for (n = 1; n <= nit; n++) {
     tic, 2;
-    off += 0.1;
-    if ((off + sim.dim) > dimsof(ps)(2)) off = 0;
-    turb = bilin(ps, 1 + off, sim.dim) / 5.;
-    pha = turb - dmshape; // total phase after correction
+    sem_take, my_semid, 3; // wait for aoscreens() to be ready
+    turb = shm_read(my_shmid, "turb");
+    sem_give, my_semid, 3; // tell aoscreens( to proceed to next step
+    pha = turb - dmshape;  // total phase after correction
     t2 += tac(2);
     tic, 3;
     sig = shwfs(wfs, pup, pha);
@@ -343,15 +356,15 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     if (disp) {
       data = float(*wfs.im);
       shm_write, my_shmid, "wfsim", &data;
-      data = float(turb);
-      shm_write, my_shmid, "turb", &data;
       iteration = [n];
       shm_write, my_shmid, "iteration", &iteration, publish = 1;
     }
     t4 += tac(4);
   }
+  extern nitps;
+  nitps = nit / tac();
   if (verb) write, "";
-  write, format = "%s: %.1f it/s, ", parname, nit / tac();
+  write, format = "%s: %.1f it/s, ", parname, nitps;
   write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n", t2 * 1e6 / nit, t3 * 1e6 / nit,
          t4 * 1e6 / nit, nit / (t2 + t3 + t4);
 
@@ -359,12 +372,28 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   pause, 100;
   if (disp) {
     shm_free, my_shmid, "wfsim";
-    shm_free, my_shmid, "turb";
     shm_free, my_shmid, "iteration";
   }
+  shm_free, my_shmid, "turb";
   shm_free, my_shmid, "dmshape";
   shm_free, my_shmid, "wfs_signal";
   sem_cleanup, my_semid;
+}
+
+func aoscreens(void) {
+  /* DOCUMENT Computes the phase from turbulence for given iteration
+  and direction.
+  */
+  for (n = 1; n <= nit; n++) {
+    off += 0.1;
+    if ((off + sim.dim) > dimsof(ps)(2)) off = 0;
+    turb = bilin(ps, 1 + off, sim.dim) / 5.;
+    data = float(turb);
+    shm_write, my_shmid, "turb", &data;
+    s1 = sem_give(my_semid, 3);
+    if (n < nit) s2 = sem_take(my_semid, 3);
+    if ((s1 < 0) || (s2 < 0)) return;
+  }
 }
 
 func aommul(void) {
