@@ -14,3 +14,17 @@ SHAO only offers Shack-Hartmann WFS, and classical continuous phasesheet DMs wit
 - Use threaded FFTW
 - Proper normalisation/calibration of focal length in fresnel SH
 - Try out and test a rust implementation
+
+## Notes on SHM
+
+Sometimes after errors there may be residual allocation of shared memory, semaphores or messages. To deal with this:
+
+```bash
+ipcs
+```
+will list all queues, shm, semaphores etc.
+and 
+```bash
+ipcrm `ipcs -s | grep -E '0x7808|0x7101|0x7dcb' | awk '{print "-S " $1}'`; ipcrm `ipcs -m | grep -E '0x7808' | awk '{print "-M " $1}'`; ipcrm `ipcs -q | grep -E '0x7101' | awk '{print "-Q " $1}'`; ipcs
+```
+will clean up all, based on the prefix (e.g. 0x7808 etc) which are used by shao (and then print out the list of queues etc that should be empty).

@@ -17,10 +17,10 @@ write, format = "%s\n", "2024 AO simulation demo";
 write, format = "%s\n", "New WFS model (with MLA, global)";
 write, format = "%s\n", "New DM (spline)";
 write, format = "%s\n", "Adjust flength (prop to focal length) in parfile, then";
-write, format = "%s\n", "> #include \"sh40.par\"";
-write, format = "%s\n", "> wfscalib,wfs";
+write, format = "%s\n", "> aoread,\"examples/test.par\"";
 write, format = "%s\n", "> aocalib,wfs,dm";
-write, format = "%s\n\n", "> aoloop,wfs,dm,0.5,100,0.5,1.,disp=1;";
+write, format = "%s\n", "> aoloop,wfs,dm,0.5,1000,0.5,0.1,disp=1;";
+write, format = "%s\n\n", "or\n> shaorestore,\"test\"; aoloop,wfs,dm,0.5,1000,0.5,0.1,disp=1;";
 
 /********************** STRUCTURES ***********************/
 include, "structures.i", 1;
@@ -64,6 +64,8 @@ func shaosave(fname) {
   */
   if (fname == []) fname = strip_file_extension(parname);
   if (!strmatch(fname, ".shao")) fname += ".shao";
+  // shm_cleanup,my_shmid;
+  // msq_cleanup,my_msqid;
   save, createb(fname);
 }
 
@@ -358,6 +360,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   if (disp) {
     shm_free, my_shmid, "wfsim";
     shm_free, my_shmid, "turb";
+    shm_free, my_shmid, "iteration";
   }
   shm_free, my_shmid, "dmshape";
   shm_free, my_shmid, "wfs_signal";
