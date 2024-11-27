@@ -1,8 +1,9 @@
 // STRUCTURES
 struct sims {
-	long dim;
-	float pupd;
-	float cond;
+	string  parname;
+	long    dim;
+	float   pupd;
+	float   cond;
 	pointer imat;
 	pointer cmat;
 	pointer ev;
@@ -17,13 +18,14 @@ struct wfss {
 	long    nsub;  // total number of sub
 	long    ppsub; // pixel per sub
 	float   _fl;
-	pointer mla;
-	pointer emla;
-	pointer foc;
-	pointer pkern;
+	float   pup(dim,dim);
+	complex emla(dim,dim);
+	complex pkern(dim,dim);
+	float   mla(dim,dim);
+	float   foc(dim,dim);
+	float   im(dim,dim);
 	pointer valid2;
 	pointer xyc;
-	pointer im;
 	pointer signal;
 	pointer refmes;
 };
@@ -35,11 +37,11 @@ struct dms {
 	float   push4imat;
 	float   coupling;
 	float   margin;
+	pointer shape;
 	pointer valid2;
 	pointer wval;
 	pointer ker;
 	pointer xyups;
 	pointer com;
-	pointer shape;
 	pointer ashape;
 }

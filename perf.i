@@ -1,10 +1,19 @@
+calib = 0;
+
 require,"shao.i";
-disp = 0; nit = 2000; gain = 0.5; turb = 0.5; noise = 0.1;
-aoread,"examples/sh6.par";  aocalib,wfs,dm; aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
-aoread,"examples/sh8.par";  aocalib,wfs,dm; aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
-aoread,"examples/test.par"; aocalib,wfs,dm; aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
-aoread,"examples/sh16.par"; aocalib,wfs,dm; aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
-aoread,"examples/sh32.par"; aocalib,wfs,dm; aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
-aoread,"examples/sh40.par"; aocalib,wfs,dm; aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
-aoread,"examples/sh64.par"; aocalib,wfs,dm; aoloop,wfs,dm,0.5,2000,0.8,0.3,disp=disp;
+func doit(void) {
+  disp = 1; nit = 1000; gain = 0.5; turb = 0.5; noise = 0.1;
+  prefix = ["sh6","sh8","test","sh16","sh32"];//,"sh40","sh64"];
+  for (nn=1;nn<=numberof(prefix);nn++) {
+    if (calib) {
+      aoread,"examples/"+prefix(nn)+".par";
+      aocalib,wfs,dm;
+      shaosave,prefix(nn);
+    } else {
+      shaorestore,prefix(nn);
+      aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
+    }
+  }
+}
+status = doit();
 quit;
