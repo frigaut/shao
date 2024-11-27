@@ -424,7 +424,8 @@ func aommul(void) {
     // slopes ready, fetch them:
     sig = shm_read(my_shmid, "wfs_signal");
     // compute corresponding dm update and shape:
-    com_update = cmat(, +) * sig(+);
+    // com_update = cmat(, +) * sig(+);
+    com_update = mvmult(cmat,sig);
     *dm.com = leak * *dm.com + gain * com_update; // Update DM command.
     *dm.com -= avg(*dm.com);
     dmshape = float(*dm_shape(dm).shape);

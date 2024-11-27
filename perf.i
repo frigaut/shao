@@ -1,4 +1,4 @@
-calib = 1;
+calib = 0;
 
 require,"shao.i";
 func doit(void) {

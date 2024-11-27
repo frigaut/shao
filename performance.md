@@ -96,3 +96,16 @@ sh40.par: 201.0 it/s, tur=63.5μs, wfs=4859.8μs, shm=49.7μs (201.1)
 sh64.par: 33.8 it/s, tur=244.9μs, wfs=23541.2μs, shm=5824.7μs (33.8)
 ```
 OK, decently fast.
+
+```ad-note
+v0.3.8 (make use of yeti's mvmult)
+sh6.par: 3371.2 it/s, tur=14.6μs, wfs=261.5μs, shm=18.4μs (3396.9)
+sh8.par: 2241.2 it/s, tur=16.0μs, wfs=412.6μs, shm=15.5μs (2252.0)
+test.par: 1091.1 it/s, tur=21.8μs, wfs=875.0μs, shm=17.5μs (1093.7)
+sh16.par: 826.5 it/s, tur=20.3μs, wfs=1166.6μs, shm=20.8μs (828.0)
+sh32.par: 201.5 it/s, tur=58.6μs, wfs=4862.3μs, shm=39.1μs (201.6)
+sh40.par: 199.8 it/s, tur=63.5μs, wfs=4894.5μs, shm=44.4μs (199.9)
+sh64.par: 42.0 it/s, tur=272.2μs, wfs=23401.6μs, shm=151.1μs (42.0)
+```
+Significant difference on the large system in which time(mmul) is
+larger than time(wfsing).
