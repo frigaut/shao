@@ -58,3 +58,29 @@ sh32.par: 191.5 it/s, tur=70.1μs, wfs=5106.1μs, shm=43.5μs (191.6)
 sh40.par: 194.1 it/s, tur=69.2μs, wfs=5034.2μs, shm=44.9μs (194.2)
 sh64.par: 36.0 it/s, tur=256.8μs, wfs=24381.9μs, shm=3132.3μs (36.0)
 ```
+
+```ad-note
+v0.3.6
+sh6.par: 3223.4 it/s, tur=14.2μs, wfs=279.2μs, shm=14.6μs (3246.6)
+sh8.par: 2061.6 it/s, tur=15.4μs, wfs=450.8μs, shm=16.6μs (2071.2)
+test.par: 1022.7 it/s, tur=20.0μs, wfs=937.2μs, shm=18.3μs (1025.0)
+sh16.par: 778.8 it/s, tur=21.8μs, wfs=1240.1μs, shm=19.9μs (780.1)
+sh32.par: 183.8 it/s, tur=73.8μs, wfs=5314.0μs, shm=50.4μs (183.9)
+sh40.par: 145.4 it/s, tur=63.2μs, wfs=5330.7μs, shm=1479.1μs (145.5)
+sh64.par: 20.9 it/s, tur=255.9μs, wfs=24888.3μs, shm=22613.3μs (20.9)
+```
+^^ Performance regression for large systems, probably due to structure
+pointers to explicit arrays. Creating branch fix_perf_regression_of_0.3.6
+
+```ad-note
+0.3.5 + fix shm etc
+sh6.par: 3275.6 it/s, tur=13.7μs, wfs=268.6μs, shm=20.7μs (3300.8)
+sh8.par: 2231.5 it/s, tur=14.8μs, wfs=415.1μs, shm=16.1μs (2242.4)
+test.par: 1115.3 it/s, tur=19.8μs, wfs=854.7μs, shm=20.1μs (1117.9)
+sh16.par: 848.6 it/s, tur=19.3μs, wfs=1135.3μs, shm=21.7μs (850.1)
+sh32.par: 198.9 it/s, tur=81.6μs, wfs=4900.7μs, shm=43.9μs (199.0)
+sh40.par: 199.8 it/s, tur=70.5μs, wfs=4888.3μs, shm=43.4μs (199.9)
+sh64.par: 34.5 it/s, tur=245.1μs, wfs=23623.9μs, shm=5129.2μs (34.5)
+```
+OK we're more or less back to max performance. Now let's fold back some
+of the structure changes - if not the save/restore is screwed.

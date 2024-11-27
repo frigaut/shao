@@ -20,8 +20,12 @@ struct wfss {
 	float   _fl;
 	pointer mla;
 	pointer emla;
+	pointer emla_re;
+	pointer emla_im;
 	pointer foc;
 	pointer pkern;
+	pointer pkern_re;
+	pointer pkern_im;
 	pointer valid2;
 	pointer xyc;
 	pointer im;

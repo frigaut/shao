@@ -61,7 +61,18 @@ func shaosave(fname) {
   */
   if (fname == []) fname = strip_file_extension(sim.parname);
   if (!strmatch(fname, ".shao")) fname += ".shao";
-  save, createb(fname);
+  // unfortunately, because we can't save pointer to complex arrays:
+  wfs.emla_re = &((*wfs.emla).re);
+  wfs.emla_im = &((*wfs.emla).im);
+  emla = *wfs.emla * 1;
+  wfs.emla = &([]);
+  // wfs.pkern_re = &((*wfs.pkern).re);
+  // wfs.pkern_im = &((*wfs.pkern).im);
+  // pkern = *wfs.pkern * 1;
+  // wfs.pkern = &([]);
+  vsave, createb(fname), wfs, dm, sim, pup, pkern;
+  wfs.emla = &emla;
+  // wfs.pkern = &pkern;
 }
 
 func shaorestore(fname) {
@@ -71,6 +82,8 @@ func shaorestore(fname) {
   if (fname == []) error, "shaorestore,filename";
   if (!strmatch(fname, ".shao")) fname += ".shao";
   restore, openb(fname);
+  wfs.emla = &(*wfs.emla_re + 1i * *wfs.emla_im);
+  // wfs.pkern = &(*wfs.pkern_re + 1i * *wfs.pkern_im);
 }
 
 /************************ FRESNEL ************************/
@@ -389,9 +402,7 @@ func aoscreens(void) {
     data = float(turb);
     shm_write, my_shmid, "turb", &data;
     s1 = sem_give(my_semid, 3);
-    if (n < nit) {
-      s2 = sem_take(my_semid, 4);
-    }
+    if (n < nit) { s2 = sem_take(my_semid, 4); }
     if ((s1 < 0) || (s2 < 0)) return;
   }
 }
@@ -402,7 +413,7 @@ func aommul(void) {
   Reconstruction and DM shape calculations
   */
   dmshape = float(pup * 0);
-  eq_nocopy,cmat,*sim.cmat;
+  eq_nocopy, cmat, *sim.cmat;
   while (1) {
     // publish result:
     data = float(dmshape);
