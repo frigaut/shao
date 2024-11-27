@@ -19,6 +19,9 @@ write, format = "%s\n", "> aocalib,wfs,dm";
 write, format = "%s\n", "> aoloop,wfs,dm,0.5,1000,0.5,0.1,disp=1;";
 write, format = "%s\n\n", "or\n> shaorestore,\"test\"; aoloop,wfs,dm,0.5,1000,0.5,0.1,disp=1;";
 
+/********************** STRUCTURES ***********************/
+include, "structures.i", 1;
+
 /********************** FUNCTIONS ************************/
 func aoall(parfile, nit =, disp =, verb =) {
   // integrated routine, read parfile, does calib and loop.
@@ -32,18 +35,12 @@ func aoall(parfile, nit =, disp =, verb =) {
 
 func aoread(parfile) {
   // read parfile and prep some variable.
-  extern wfs, dm, sim, debug;
-  // Some structures have array dim that depends on sim.dim,
-  // tricks is loading twice:
-  include, "structures.i", 1;
-  include, parfile, 1;
-  dim = sim.dim;
-  include, "structures.i", 1; // now correct dimsof.
+  extern wfs, dm, sim, pup, debug;
   include, parfile, 1;
   write, format = "\nReading \"%s\"\n", parfile;
   // fill default values
   sim.parname = pathsplit(parfile, delim = "/")(0);
-  wfs.pup = float(dist(sim.dim, xc = sim.dim / 2 + 0.5, yc = sim.dim / 2 + 0.5) < (sim.pupd / 2));
+  pup = float(dist(sim.dim, xc = sim.dim / 2 + 0.5, yc = sim.dim / 2 + 0.5) < (sim.pupd / 2));
 
   wfs.lambda = (wfs.lambda ? wfs.lambda : 0.5e-6);
   wfs.ppsub = (wfs.ppsub ? wfs.ppsub : sim.dim / wfs.nxsub); // # pixel/sub in pupil plane
@@ -64,7 +61,7 @@ func shaosave(fname) {
   */
   if (fname == []) fname = strip_file_extension(sim.parname);
   if (!strmatch(fname, ".shao")) fname += ".shao";
-  vsave, createb(fname), sim, wfs, dm;
+  save, createb(fname);
 }
 
 func shaorestore(fname) {
@@ -79,15 +76,15 @@ func shaorestore(fname) {
 /************************ FRESNEL ************************/
 func prep_fresnel(foc, d, lambda) {
   // prep Fresnel propagation kernel
-  // extern pkern;
-  wfs.pkern = (roll(exp(1i * (2 * pi / lambda) * d) * exp(-1i * pi * lambda * d * foc)));
+  extern pkern;
+  pkern = roll(exp(1i * (2 * pi / lambda) * d) * exp(-1i * pi * lambda * d * foc));
 }
 
 func fresnel(obj) {
   // Actual Fresnel propagation
   tdim = dimsof(obj)(2);
   tmp = fft(obj, 1);
-  tmp *= wfs.pkern;
+  tmp *= pkern;
   res = fft(tmp, -1) / tdim ^ 2.;
   return res;
 }
@@ -98,21 +95,21 @@ func prep_wfs(wfs) {
   one = dist(wfs.ppsub, xc = wfs.ppsub / 2 + 0.5, yc = wfs.ppsub / 2 + 0.5) ^
         2. / ((wfs.ppsub) ^ 2.) * (2000. / wfs.flength);
   // replicate
-  mla = wfs.pup * 0;
+  mla = pup * 0;
   for (i = 1; i <= wfs.nxsub; i++) {
     for (j = 1; j <= wfs.nxsub; j++) {
       mla(1 + (i - 1) * wfs.ppsub : i * wfs.ppsub, 1 + (j - 1) * wfs.ppsub : j * wfs.ppsub) = one;
     }
   }
-  wfs.mla = roll(mla, [ 1, 1 ] * (sim.dim - sim.pupd) / 2);
-  wfs.emla = exp(-1i * wfs.mla * 0.35);
+  wfs.mla = &(roll(mla, [ 1, 1 ] * (sim.dim - sim.pupd) / 2));
+  wfs.emla = &(exp(-1i * (*wfs.mla) * 0.35));
   // valid subaps:
   rad = wfs.nxsub / 2. + wfs.margin;
   wfs.valid2 = &(dist(wfs.nxsub, xc = wfs.nxsub / 2 + 0.5, yc = wfs.nxsub / 2 + 0.5) < rad);
   wfs.nsub = long(sum(*wfs.valid2));
   wfs.xyc = &(indices(wfs.ppsub) - (wfs.ppsub / 2. + 0.5));
-  wfs.foc = (1. / wfs.lambda) * (dist(sim.dim) / (sim.dim / (wfs.ppsub / 32.))) ^ 2.;
-  status = prep_fresnel(wfs.foc, wfs._fl, wfs.lambda);
+  wfs.foc = &((1. / wfs.lambda) * (dist(sim.dim) / (sim.dim / (wfs.ppsub / 32.))) ^ 2.);
+  status = prep_fresnel(*wfs.foc, wfs._fl, wfs.lambda);
   return wfs;
 }
 
@@ -127,10 +124,10 @@ func cgwfs(im) {
 
 func wfsim(wfs, pup, pha) {
   // Compute WFS image given WFS, pup and phase.
-  obj = pup * (wfs.emla) * exp(-1i * pha);
+  obj = pup * (*wfs.emla) * exp(-1i * pha);
   im = fresnel(obj);
-  wfs.im = im.re * im.re + im.im * im.im;
-  return wfs.im;
+  wfs.im = &(im.re * im.re + im.im * im.im);
+  return *wfs.im;
 }
 
 func shwfs(wfs, pup, pha) {
@@ -187,7 +184,7 @@ func wfscalib(wfs) {
     de += step;
     wfs._fl = de;
     prep_wfs, wfs;
-    im = wfsim(wfs, wfs.pup, wfs.pup * 0.);
+    im = wfsim(wfs, pup, pup * 0.);
     if (debug > 1) {
       tv, im;
       pause, 10;
@@ -202,9 +199,9 @@ func wfscalib(wfs) {
   wfs._fl = bde;
   write, format = " ➜ %.1f [Arbitrary Units]\n", wfs._fl;
   if (debug >= 10)
-    write, format = "max(abs(grad(mla)))=%f\n", max(abs(wfs.mla - roll(wfs.mla, [ 0, 1 ])));
+    write, format = "max(abs(grad(mla)))=%f\n", max(abs(*wfs.mla - roll(*wfs.mla, [ 0, 1 ])));
   prep_wfs, wfs;
-  if (debug > 1) tv, wfsim(wfs, wfs.pup, wfs.pup * 0.);
+  if (debug > 1) tv, wfsim(wfs, pup, pup * 0.);
 }
 
 func aocalib(wfs, dm) {
@@ -223,14 +220,14 @@ func aocalib(wfs, dm) {
   write, format = "%s", "Measuring iMat...";
   dm.com = &(array(0., dm.nact));
   imat = array(0., [ 2, wfs.nsub * 2, dm.nact ]);
-  wfs.refmes = &(shwfs(wfs, wfs.pup, wfs.pup * 0));
+  wfs.refmes = &(shwfs(wfs, pup, pup * 0));
   for (na = 1; na <= dm.nact; na++) {
     *dm.com *= 0.;
     (*dm.com)(na) = dm.push4imat;
     pha = *dm_shape(dm).shape;
-    imat(, na) = shwfs(wfs, wfs.pup, pha) - (*wfs.refmes);
+    imat(, na) = shwfs(wfs, pup, pha) - (*wfs.refmes);
     if (debug > 5) {
-      tv, wfs.im;
+      tv, *wfs.im;
       pause, 5;
     }
   }
@@ -252,7 +249,7 @@ func aocalib(wfs, dm) {
   cmatval = (vt(+, ) * evi(, +))(, +) * u(, +); // cmat for valid actuators
   cmat = transpose(imat);
   cmat(ival, ) = cmatval;
-  sim.imat = &imat;
+  // sim.imat = &imat;
   sim.cmat = &cmat;
 }
 
@@ -292,9 +289,9 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // sem 3: Turbulence/phase screen ready from aoscreens()
   leak = 0.99;
   ps = float(fits_read("~/.yorick/data/bigs1.fits") * sturb);
-  dmshape = float(wfs.pup * 0.);
+  dmshape = pup * 0.;
   dm.com = &(array(0., dm.nact));
-  imav = calpsf(wfs.pup, 0);
+  imav = calpsf(pup, 0);
   maxim = max(imav);
   strehlv = array(0.0f, nit);
   itv = array(0n, nit);
@@ -302,7 +299,6 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   avgstrehl = 0.;
   winkill;
   pause, 200;
-  // hitReturn;
   // SHM DISPLAYS:
   if (fork() == 0) {
     // I am the child for display
@@ -336,7 +332,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     pha = turb - dmshape;  // total phase after correction
     t2 += tac(2);
     tic, 3;
-    sig = shwfs(wfs, wfs.pup, pha);
+    sig = shwfs(wfs, pup, pha);
     if (noise) sig += random_n(wfs.nsub * 2) * noise; // WFS noise.
     t3 += tac(3);                                     // WFSing
     tic, 4;
@@ -355,7 +351,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
       }
     }
     if (disp) {
-      shm_write, my_shmid, "wfsim", &(wfs.im);
+      data = float(*wfs.im);
+      shm_write, my_shmid, "wfsim", &data;
       iteration = [n];
       shm_write, my_shmid, "iteration", &iteration, publish = 1;
     }
@@ -385,12 +382,12 @@ func aoscreens(void) {
   /* DOCUMENT Computes the phase from turbulence for given iteration
   and direction.
   */
-  ps = float(ps);
   for (n = 1; n <= nit; n++) {
-    off += 0.1f;
-    if ((off + sim.dim) > dimsof(ps)(2)) off = 0.0f;
-    turb = bilin(ps, 1 + off, sim.dim) / 5.0f;
-    shm_write, my_shmid, "turb", &turb;
+    off += 0.1;
+    if ((off + sim.dim) > dimsof(ps)(2)) off = 0;
+    turb = bilin(ps, 1 + off, sim.dim) / 5.;
+    data = float(turb);
+    shm_write, my_shmid, "turb", &data;
     s1 = sem_give(my_semid, 3);
     if (n < nit) {
       s2 = sem_take(my_semid, 4);
@@ -404,18 +401,19 @@ func aommul(void) {
   Normally handled by a child.
   Reconstruction and DM shape calculations
   */
-  dmshape = wfs.pup * 0;
+  dmshape = float(pup * 0);
+  eq_nocopy,cmat,*sim.cmat;
   while (1) {
     // publish result:
-    // eq_nocopy,data,dmshape;
-    shm_write, my_shmid, "dmshape", &dmshape;
+    data = float(dmshape);
+    shm_write, my_shmid, "dmshape", &data;
     // and give semaphore:
     sem_give, my_semid, 1;
     s = sem_take(my_semid, 0);
     // slopes ready, fetch them:
     sig = shm_read(my_shmid, "wfs_signal");
     // compute corresponding dm update and shape:
-    com_update = (*sim.cmat)(, +) * sig(+);
+    com_update = cmat(, +) * sig(+);
     *dm.com = leak * *dm.com + gain * com_update; // Update DM command.
     *dm.com -= avg(*dm.com);
     dmshape = float(*dm_shape(dm).shape);
@@ -464,7 +462,7 @@ func aodisp(void) {
 
     // PSF and Strehl
     pha = turb - dmshape;
-    im = calpsf(wfs.pup, pha);
+    im = calpsf(pup, pha);
     plsys, 4;
     pli, sqrt(im(1 + sim.dim - zoom : sim.dim + zoom, 1 + sim.dim - zoom : sim.dim + zoom));
     strehl = max(im) / maxim * 100.;
@@ -475,8 +473,8 @@ func aodisp(void) {
 
     // Residual phase
     plsys, 1;
-    mp = max(pha(where(wfs.pup)));
-    pli, (pha - mp) * wfs.pup;
+    mp = max(pha(where(pup)));
+    pli, (pha - mp) * pup;
     pltitle_vp, "Residual phase", dy;
 
     // Strehl vs iteration
