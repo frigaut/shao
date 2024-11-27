@@ -60,7 +60,7 @@ sh64.par: 36.0 it/s, tur=256.8μs, wfs=24381.9μs, shm=3132.3μs (36.0)
 ```
 
 ```ad-note
-v0.3.6
+v0.3.6 (on old main branch)
 sh6.par: 3223.4 it/s, tur=14.2μs, wfs=279.2μs, shm=14.6μs (3246.6)
 sh8.par: 2061.6 it/s, tur=15.4μs, wfs=450.8μs, shm=16.6μs (2071.2)
 test.par: 1022.7 it/s, tur=20.0μs, wfs=937.2μs, shm=18.3μs (1025.0)
@@ -84,3 +84,15 @@ sh64.par: 34.5 it/s, tur=245.1μs, wfs=23623.9μs, shm=5129.2μs (34.5)
 ```
 OK we're more or less back to max performance. Now let's fold back some
 of the structure changes - if not the save/restore is screwed.
+
+```ad-note
+v0.3.7 "fixed shm and save+restore bugs - maintained performance"
+sh6.par: 3336.8 it/s, tur=13.9μs, wfs=259.0μs, shm=24.6μs (3361.3)
+sh8.par: 2177.1 it/s, tur=16.6μs, wfs=424.9μs, shm=15.5μs (2187.9)
+test.par: 1082.3 it/s, tur=20.9μs, wfs=881.8μs, shm=19.1μs (1084.8)
+sh16.par: 825.8 it/s, tur=20.7μs, wfs=1168.3μs, shm=19.9μs (827.3)
+sh32.par: 199.2 it/s, tur=75.3μs, wfs=4901.3μs, shm=41.9μs (199.3)
+sh40.par: 201.0 it/s, tur=63.5μs, wfs=4859.8μs, shm=49.7μs (201.1)
+sh64.par: 33.8 it/s, tur=244.9μs, wfs=23541.2μs, shm=5824.7μs (33.8)
+```
+OK, decently fast.
