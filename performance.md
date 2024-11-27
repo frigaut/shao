@@ -107,5 +107,18 @@ sh32.par: 201.5 it/s, tur=58.6μs, wfs=4862.3μs, shm=39.1μs (201.6)
 sh40.par: 199.8 it/s, tur=63.5μs, wfs=4894.5μs, shm=44.4μs (199.9)
 sh64.par: 42.0 it/s, tur=272.2μs, wfs=23401.6μs, shm=151.1μs (42.0)
 ```
+or, on 5000 iterations, same version - a tiny gain but a gain.
+```ad-note
+sh6.par: 3518.0 it/s, tur=14.2μs, wfs=253.6μs, shm=14.3μs (3545.0)
+sh8.par: 2233.0 it/s, tur=15.7μs, wfs=414.4μs, shm=15.6μs (2243.8)
+test.par: 1104.9 it/s, tur=18.8μs, wfs=864.6μs, shm=19.5μs (1107.5)
+sh16.par: 843.7 it/s, tur=21.4μs, wfs=1142.8μs, shm=18.9μs (845.2)
+sh32.par: 202.4 it/s, tur=60.2μs, wfs=4839.5μs, shm=39.0μs (202.5)
+sh40.par: 203.3 it/s, tur=61.3μs, wfs=4818.3μs, shm=36.7μs (203.4)
+sh64.par: 42.5 it/s, tur=260.9μs, wfs=23137.8μs, shm=143.5μs (42.5)
+```
+
 Significant difference on the large system in which time(mmul) is
 larger than time(wfsing).
+
+fuck it. In rebasing, I lost all the tags.
