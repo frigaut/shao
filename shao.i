@@ -292,6 +292,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   The loop
   */
   if (disp == []) disp = 0;
+  if (wait == []) wait = 0;
   my_shmid = 0x78080000 | getpid();
   shm_init, my_shmid, slots = 6;
   my_semid = 0x7dcb0000 | getpid();
@@ -359,7 +360,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
       sem_give, my_semid, 2; // for aommul
       sem_give, my_semid, 2; // for aodisp, to exit while(1)
       if (wait) {
-        status = hitReturn();
+        if (wait<0) status = hitReturn();
+        if (wait>0) pause,long(wait*1000);
         sem_give, my_semid, 2; // for aodisp, now to exit
       }
     }
@@ -372,7 +374,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     t4 += tac(4);
   }
   extern nitps;
-  nitps = nit / tac();
+  nitps = nit / (tac()-wait);
   if (verb) write, "";
   write, format = "%s: %.1f it/s, ", sim.parname, nitps;
   write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n", t2 * 1e6 / nit, t3 * 1e6 / nit,
