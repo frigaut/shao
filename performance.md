@@ -121,4 +121,15 @@ sh64.par: 42.5 it/s, tur=260.9μs, wfs=23137.8μs, shm=143.5μs (42.5)
 Significant difference on the large system in which time(mmul) is
 larger than time(wfsing).
 
-fuck it. In rebasing, I lost all the tags.
+fuck it. In rebasing, I lost all the tags. update: was able to retrieve them.
+
+```ad-note
+v0.4.0
+sh6.par: 3243.3 it/s, tur=14.5μs, wfs=269.6μs, shm=22.0μs (3267.6)
+sh8.par: 2090.5 it/s, tur=17.1μs, wfs=439.9μs, shm=19.1μs (2100.5)
+test.par: 1092.1 it/s, tur=19.7μs, wfs=872.5μs, shm=21.2μs (1094.7)
+sh16.par: 811.5 it/s, tur=20.9μs, wfs=1186.1μs, shm=23.1μs (813.0)
+sh32.par: 198.8 it/s, tur=64.7μs, wfs=4922.0μs, shm=41.5μs (198.9)
+sh40.par: 198.0 it/s, tur=64.7μs, wfs=4941.0μs, shm=41.5μs (198.1)
+sh64.par: 40.9 it/s, tur=253.6μs, wfs=24040.6μs, shm=144.4μs (40.9)
+```

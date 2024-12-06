@@ -230,20 +230,58 @@ func aocalib(wfs, dm) {
   prep_wfs, wfs;
   prep_dm, dm;
   // do imat:
-  write, format = "%s", "Measuring iMat...";
+  write, format = "%s\n", "Measuring iMat...";
   dm.com = &(array(0., dm.nact));
   imat = array(0., [ 2, wfs.nsub * 2, dm.nact ]);
   wfs.refmes = &(shwfs(wfs, pup, pup * 0));
-  for (na = 1; na <= dm.nact; na++) {
+
+  // preparing forks
+  tic, 5;
+  // nforks = 4;
+  nforks = clip(dm.nact/200,1,nprocs());
+  write,format="Using %d forks for imat\n",nforks;
+  my_shmid = 0x78080000 | getpid();
+  shm_init, my_shmid, slots = nforks;
+  my_semid = 0x7dcb0000 | getpid();
+  sem_init, my_semid, nums = nforks;
+  // nactperfork = dm.nact / nforks;
+  // a1 = indgen(1 : dm.nact : nactperfork)(1 : -1);
+  // a2 = _(a1(2 :) - 1, dm.nact);
+  a1 = long(span(1,dm.nact,nforks+1)(:-1));
+  a2 = long(span(1,dm.nact,nforks+1)(2:)-1);
+  a2(0) = dm.nact;
+  am_child = 0;
+  for (nc = 1; nc <= nforks - 1; nc++) {
+    if (fork() == 0) am_child = 1;
+    if (am_child) break;
+    pause, 10;
+  }
+  write, format = "%d: Calibrating imat for actuators %d to %d (am_child=%d)\n", nc, a1(nc), a2(nc),
+         am_child;
+  for (na = a1(nc); na <= a2(nc); na++) {
     *dm.com *= 0.;
     (*dm.com)(na) = dm.push4imat;
     pha = *dm_shape(dm).shape;
     imat(, na) = shwfs(wfs, pup, pha) - (*wfs.refmes);
-    if (debug > 5) {
-      tv, *wfs.im;
-      pause, 5;
-    }
+    // if (debug > 5) { tv, *wfs.im; pause, 5; }
   }
+  // write imat piece
+  if (am_child) {
+    shm_write, my_shmid, "imat" + totxt(nc), &imat;
+    sem_give, my_semid, nc;
+    quit;
+  }
+  // else I am the parent, gather imat pieces
+  for (nc = 1; nc <= nforks - 1; nc++) {
+    sem_take, my_semid, nc;
+  }
+  for (nc = 1; nc <= nforks - 1; nc++) {
+    imat += shm_read(my_shmid, "imat" + totxt(nc));
+  }
+  write, format = "iMat acquisition: %f seconds\n", tac(5);
+  shm_cleanup, my_shmid;
+  sem_cleanup, my_semid;
+
   imat /= dm.push4imat;
   write, format = "%s\n", "Computing cMat";
   // find actuator with low response, to extrapolate:
@@ -262,7 +300,7 @@ func aocalib(wfs, dm) {
   cmatval = (vt(+, ) * evi(, +))(, +) * u(, +); // cmat for valid actuators
   cmat = transpose(imat);
   cmat(ival, ) = cmatval;
-  // sim.imat = &imat;
+  sim.imat = &imat;
   sim.cmat = &cmat;
 }
 
@@ -360,8 +398,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
       sem_give, my_semid, 2; // for aommul
       sem_give, my_semid, 2; // for aodisp, to exit while(1)
       if (wait) {
-        if (wait<0) status = hitReturn();
-        if (wait>0) pause,long(wait*1000);
+        if (wait < 0) status = hitReturn();
+        if (wait > 0) pause, long(wait * 1000);
         sem_give, my_semid, 2; // for aodisp, now to exit
       }
     }
@@ -374,7 +412,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     t4 += tac(4);
   }
   extern nitps;
-  nitps = nit / (tac()-wait);
+  nitps = nit / (tac() - wait);
   if (verb) write, "";
   write, format = "%s: %.1f it/s, ", sim.parname, nitps;
   write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n", t2 * 1e6 / nit, t3 * 1e6 / nit,
@@ -427,7 +465,7 @@ func aommul(void) {
     sig = shm_read(my_shmid, "wfs_signal");
     // compute corresponding dm update and shape:
     // com_update = cmat(, +) * sig(+);
-    com_update = mvmult(cmat,sig);
+    com_update = mvmult(cmat, sig);
     *dm.com = leak * *dm.com + gain * com_update; // Update DM command.
     *dm.com -= avg(*dm.com);
     dmshape = float(*dm_shape(dm).shape);
