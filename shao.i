@@ -354,6 +354,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // SHM DISPLAYS:
   if (fork() == 0) {
     // I am the child for display
+    wfs = dm = []; // free up some memory
     if (disp != 0) status = aodisp();
     if (debug) write, format = "%s\n", "Display fork quitting";
     quit;
@@ -361,6 +362,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // SHM MMUL
   if (fork() == 0) {
     // I am the child for matrix mutiply
+    wfs = []; // free up some memory
     status = aommul();
     if (debug) write, format = "%s\n", "Matrix multiply fork quitting";
     quit;
@@ -368,6 +370,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // SHM phase screens
   if (fork() == 0) {
     // I am the child for matrix mutiply
+    wfs = dm = []; // free up some memory
     status = aoscreens();
     if (debug) write, format = "%s\n", "Phase screen fork quitting";
     quit;
