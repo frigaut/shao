@@ -121,8 +121,6 @@ sh64.par: 42.5 it/s, tur=260.9μs, wfs=23137.8μs, shm=143.5μs (42.5)
 Significant difference on the large system in which time(mmul) is
 larger than time(wfsing).
 
-fuck it. In rebasing, I lost all the tags. update: was able to retrieve them.
-
 ```ad-note
 v0.4.0
 sh6.par: 3243.3 it/s, tur=14.5μs, wfs=269.6μs, shm=22.0μs (3267.6)

@@ -50,6 +50,10 @@ func aoread(parfile) {
   dm.nxact = (dm.nxact ? dm.nxact : wfs.nxsub + 1);
   dm.push4imat = (dm.push4imat ? dm.push4imat : 1.);
   dm.coupling = (dm.coupling ? dm.coupling : 1.4);
+  dm.coupling_ext = (dm.coupling_ext ? dm.coupling_ext : 2.0);
+
+  sim.imlambda = (sim.imlambda ? sim.imlambda : wfs.lambda);
+  sim.leak = (sim.leak ? sim.leak : 1.0);
 
   debug = (debug ? debug : 0);
   prepzernike, sim.dim, sim.pupd + 1;
@@ -170,6 +174,7 @@ func prep_dm(dm) {
   dm.wval = &(where(*dm.valid2));
   dm.nact = numberof(*dm.wval);
   dm.ker = &(makegaussian(3, dm.coupling));
+  dm.ker4ext = &(makegaussian(7, dm.coupling));
   dm.xyups = &(span(1., dm.nxact, (dm.nxact - 1) * dm.upsamp));
   return dm;
 }
@@ -286,20 +291,42 @@ func aocalib(wfs, dm) {
   write, format = "%s\n", "Computing cMat";
   // find actuator with low response, to extrapolate:
   aresp = imat(rms, );                                  // actuator response
-  ival = where(aresp >= (max(aresp) * wfs.threshresp)); // valid actuator idx based on response
+  iaok = where(aresp >= (max(aresp) * wfs.threshresp)); // valid actuator idx based on response
   iext = where(aresp < (max(aresp) * wfs.threshresp));  // idx of actuators to extrapolate
-  write, format = "%d actuators filtered out of %d; ", numberof(iext), dm.nact;
-  imatval = imat(, ival); // imat for valid actuators
+  write, format = "%d actuators filtered out of %d;\n", numberof(iext), dm.nact;
+  imatval = imat(, iaok); // imat for valid actuators
+  tic,5;
   ev = SVdec(imatval, u, vt);
-  w = where((ev / max(ev)) > sim.cond);
-  write, format = "%d eigenmodes filtered out of %d\n", numberof(ival) - numberof(w),
-         numberof(ival);
+  write,format="SVD of %dx%d imat took %.3f seconds\n",dimsof(imat)(2),dimsof(imat)(3),tac(5);
+  nev = numberof(ev);
+  // error;
+  if (sim.nfilt) { // number of filtered mode specified, prefer this.
+    w = indgen(nev-sim.nfilt);
+  } else {
+    w = where((ev / max(ev)) > sim.cond);
+  }
+  write, format = "%d eigenmodes filtered out of %d\n", numberof(iaok) - numberof(w),
+         numberof(iaok);
   evi = ev * 0.;
   evi(w) = 1. / ev(w);
   evi = diag(evi);
   cmatval = (vt(+, ) * evi(, +))(, +) * u(, +); // cmat for valid actuators
   cmat = transpose(imat);
-  cmat(ival, ) = cmatval;
+  cmat(iaok, ) = cmatval;
+  // manage extrapolated
+  for (i=1;i<=numberof(iext);i++) {
+    *dm.com *= 0;
+    (*dm.com)(iext(i)) = 1;
+    (*dm.ashape)(*dm.wval) = *dm.com;
+    dms = convol2d(*dm.ashape, *dm.ker4ext);
+    coup = dms(*dm.wval);
+    coup(iext) = 0; // we're not extrapolating from extrapolated
+    coup /= sum(coup); // normalise
+    cmat(iext(i),) = cmat(+,)*coup(+);
+  }
+  // fill structures
+  dm.iaok = &iaok;
+  if (numberof(iext)) dm.iext = &iext;
   sim.imat = &imat;
   sim.cmat = &cmat;
 }
@@ -339,7 +366,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // sem 1: DM command / dm shape ready from aommul()
   // sem 2: End of loop (nit reached)
   // sem 3: Turbulence/phase screen ready from aoscreens()
-  leak = 0.99;
+  // leak = 0.99;
   ps = float(fits_read("~/.yorick/data/bigs1.fits") * sturb);
   dmshape = pup * 0.;
   dm.com = &(array(0., dm.nact));
@@ -354,7 +381,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // SHM DISPLAYS:
   if (fork() == 0) {
     // I am the child for display
-    wfs = dm = []; // free up some memory
+    dm = []; // free up some memory
     if (disp != 0) status = aodisp();
     if (debug) write, format = "%s\n", "Display fork quitting";
     quit;
@@ -469,7 +496,7 @@ func aommul(void) {
     // compute corresponding dm update and shape:
     // com_update = cmat(, +) * sig(+);
     com_update = mvmult(cmat, sig);
-    *dm.com = leak * *dm.com + gain * com_update; // Update DM command.
+    *dm.com = sim.leak * *dm.com + gain * com_update; // Update DM command.
     *dm.com -= avg(*dm.com);
     dmshape = float(*dm_shape(dm).shape);
     // check if "end" semaphore has been set
@@ -513,10 +540,11 @@ func aodisp(void) {
     // WFS IM and others
     plsys, 3;
     pli, wfsim;
-    pltitle_vp, swrite(format = "WFS, it=%d, it/s=%.1f", iter, iter / tac()), dy;
+    pltitle_vp, swrite(format = "WFS(%.2fum), it=%d, it/s=%.1f", wfs.lambda*1e6, iter, iter / tac()), dy;
 
     // PSF and Strehl
     pha = turb - dmshape;
+    pha *= (wfs.lambda/sim.imlambda);
     im = calpsf(pup, pha);
     plsys, 4;
     pli, sqrt(im(1 + sim.dim - zoom : sim.dim + zoom, 1 + sim.dim - zoom : sim.dim + zoom));
@@ -524,7 +552,7 @@ func aodisp(void) {
     itv(k) = iter;
     strehlv(k) = strehl;
     avgstrehl += strehl;
-    pltitle_vp, swrite(format = "S=%.1f%%, Savg=%.1f%%", strehl, avgstrehl / k), dy;
+    pltitle_vp, swrite(format = "S(%.2fum)=%.1f%%, Savg=%.1f%%", sim.imlambda*1e6, strehl, avgstrehl / k), dy;
 
     // Residual phase
     plsys, 1;

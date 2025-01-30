@@ -4,6 +4,9 @@ struct sims {
 	long    dim;
 	float   pupd;
 	float   cond;
+	long    nfilt;
+	float   imlambda;
+	float   leak;
 	pointer imat;
 	pointer cmat;
 	pointer ev;
@@ -39,12 +42,16 @@ struct dms {
 	long    upsamp;
 	float   push4imat;
 	float   coupling;
+	float   coupling_ext;
 	float   margin;
 	pointer valid2;
 	pointer wval;
 	pointer ker;
+	pointer ker4ext;
 	pointer xyups;
 	pointer com;
 	pointer shape;
 	pointer ashape;
+	pointer iaok;
+	pointer iext;
 }
