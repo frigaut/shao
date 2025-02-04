@@ -17,6 +17,7 @@ struct wfss {
 	float   flength;
 	float   margin;
 	float   threshresp;
+	float   pos(2); // position in arcsec in the FoV
 	long    nxsub; // number of sub on side
 	long    nsub;  // total number of sub
 	long    ppsub; // pixel per sub
@@ -44,6 +45,7 @@ struct dms {
 	float   coupling;
 	float   coupling_ext;
 	float   margin;
+	float   alt;
 	pointer valid2;
 	pointer wval;
 	pointer ker;
@@ -54,4 +56,10 @@ struct dms {
 	pointer ashape;
 	pointer iaok;
 	pointer iext;
+}
+
+struct ress {
+  float avstrehl;
+  pointer strehlv;
+  pointer imav;
 }

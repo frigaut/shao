@@ -359,7 +359,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   if (disp == []) disp = 0;
   if (wait == []) wait = 0;
   my_shmid = 0x78080000 | getpid();
-  shm_init, my_shmid, slots = 6;
+  shm_init, my_shmid, slots = 10;
   my_semid = 0x7dcb0000 | getpid();
   sem_init, my_semid, nums = 5;
   // sem 0: WFS signal ready from aoloop()
@@ -367,7 +367,7 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   // sem 2: End of loop (nit reached)
   // sem 3: Turbulence/phase screen ready from aoscreens()
   // leak = 0.99;
-  ps = float(fits_read("~/.yorick/data/bigs1.fits") * sturb);
+  ps = float(fits_read("~/.yorick/data/bigs1.fits") / sim.pupd^(5./6) * sturb);
   dmshape = pup * 0.;
   dm.com = &(array(0., dm.nact));
   imav = calpsf(pup, 0);
@@ -382,7 +382,8 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   if (fork() == 0) {
     // I am the child for display
     dm = []; // free up some memory
-    if (disp != 0) status = aodisp();
+    // if (disp != 0) status = aodisp();
+    status = aodisp(disp); // we need this for telemetry + diagnostics anyway
     if (debug) write, format = "%s\n", "Display fork quitting";
     quit;
   }
@@ -406,7 +407,9 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   t2 = t3 = t4 = t5 = 0.;
   tic;
   // else I am the parent process, main loop
+  write,format="Starting loop with %d iterations\n",nit;
   for (n = 1; n <= nit; n++) {
+    if ((debug)&&((n%100)==0)) write,format="\r%d out of %d",n,nit;
     tic, 2;
     sem_take, my_semid, 3; // wait for aoscreens() to be ready
     turb = shm_read(my_shmid, "turb");
@@ -433,32 +436,42 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
         sem_give, my_semid, 2; // for aodisp, now to exit
       }
     }
-    if (disp) {
+    // if (disp) {
       data = float(*wfs.im);
       shm_write, my_shmid, "wfsim", &data;
       iteration = [n];
       shm_write, my_shmid, "iteration", &iteration, publish = 1;
-    }
+    // }
     t4 += tac(4);
   }
   extern nitps;
   nitps = nit / (tac() - wait);
   if (verb) write, "";
-  write, format = "%s: %.1f it/s, ", sim.parname, nitps;
+  write, format = "\n%s: %.1f it/s, ", sim.parname, nitps;
   write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n", t2 * 1e6 / nit, t3 * 1e6 / nit,
          t4 * 1e6 / nit, nit / (t2 + t3 + t4);
-
   // give some time for child to quit (prompt)
   pause, 100;
-  if (disp) {
-    shm_free, my_shmid, "wfsim";
-    shm_free, my_shmid, "iteration";
-  }
+
+  strehlv = shm_read(my_shmid,"strehlv");
+  imav = shm_read(my_shmid,"imav");
+  // fill res structure
+  res = ress();
+  res.strehlv = &strehlv;
+  res.avstrehl = avg(strehlv(10:));
+  res.imav = &imav;
+
+  shm_free, my_shmid, "wfsim";
+  shm_free, my_shmid, "iteration";
   shm_free, my_shmid, "turb";
   shm_free, my_shmid, "dmshape";
   shm_free, my_shmid, "wfs_signal";
+  shm_free, my_shmid, "strehlv";
+  shm_free, my_shmid, "imav";
   shm_cleanup, my_shmid;
   sem_cleanup, my_semid;
+
+  return res;
 }
 
 func aoscreens(void) {
@@ -505,69 +518,90 @@ func aommul(void) {
   }
 }
 
-func aodisp(void) {
+func aodisp(disp) {
   /* DOCUMENT normally handled by the child.
   This reads some variable put into SHM by aoloop(), does some
   computation (e.g. PSF) and display things at its own pace.
   At the end we need to destroy the window and exit the process
   as the next call may not be for the same system.
   */
-  winkill; // we really don't want window migrating across the fork.
-  pltitle_height = 7;
-  dy = 0.005;
-  window, style = "4vp-2.gs", dpi = 180, wait = 1;
-  pause, 20;
-  plsys, 1;
-  animate, 1;
+  if (disp) {
+    winkill; // we really don't want window migrating across the fork.
+    pltitle_height = 7;
+    dy = 0.005;
+    window, style = "4vp-2.gs", dpi = 180, wait = 1;
+    system,"niri msg action focus-column-left";
+    pause, 20;
+    plsys, 1;
+    animate, 1;
+  } else pause,50;
   k = 0;
+  imav = array(0.,[2,2*sim.dim,2*sim.dim]);
   if (zoom > sim.dim) zoom = sim.dim;
   tic;
   while (1) {
     k++;
+    // write,format="k=%d\n",k;
     // this one will be set to 0 to request exit:
     s = sem_take(my_semid, 2, wait = 0);
+    // write,format="s=%d\n",s;
     if (s == 0) break;
 
     // Read some stuff from shm
     iter = shm_read(my_shmid, "iteration", subscribe = 20000)(1);
+    // write,format="iter=%d\n",iter;
     if (iter == -1) break;
     wfsim = shm_read(my_shmid, "wfsim");
     turb = shm_read(my_shmid, "turb");
     dmshape = shm_read(my_shmid, "dmshape");
     if (numberof(wfsim) == 1) { break; }
-    fma;
+    if (disp) fma;
 
     // WFS IM and others
-    plsys, 3;
-    pli, wfsim;
-    pltitle_vp, swrite(format = "WFS(%.2fum), it=%d, it/s=%.1f", wfs.lambda*1e6, iter, iter / tac()), dy;
+    if (disp) {
+      plsys, 3;
+      pli, wfsim;
+      pltitle_vp, swrite(format = "WFS(%.2fum), it=%d, it/s=%.1f", wfs.lambda*1e6, iter, iter / tac()), dy;
+    }
 
     // PSF and Strehl
     pha = turb - dmshape;
     pha *= (wfs.lambda/sim.imlambda);
     im = calpsf(pup, pha);
-    plsys, 4;
-    pli, sqrt(im(1 + sim.dim - zoom : sim.dim + zoom, 1 + sim.dim - zoom : sim.dim + zoom));
+    imav += im;
+    if (disp) {
+      plsys, 4;
+      pli, sqrt(im(1 + sim.dim - zoom : sim.dim + zoom, 1 + sim.dim - zoom : sim.dim + zoom));
+    }
     strehl = max(im) / maxim * 100.;
     itv(k) = iter;
     strehlv(k) = strehl;
     avgstrehl += strehl;
-    pltitle_vp, swrite(format = "S(%.2fum)=%.1f%%, Savg=%.1f%%", sim.imlambda*1e6, strehl, avgstrehl / k), dy;
+    if (disp) pltitle_vp, swrite(format = "S(%.2fum)=%.1f%%, Savg=%.1f%%", sim.imlambda*1e6, strehl, avgstrehl / k), dy;
 
     // Residual phase
-    plsys, 1;
-    mp = max(pha(where(pup)));
-    pli, (pha - mp) * pup;
-    pltitle_vp, "Residual phase", dy;
+    if (disp) {
+      plsys, 1;
+      mp = max(pha(where(pup)));
+      pli, (pha - mp) * pup;
+      pltitle_vp, "Residual phase", dy;
+    }
 
     // Strehl vs iteration
-    plsys, 2;
-    plg, strehlv(1 : k), itv(1 : k);
-    range, 0;
-    pltitle_vp, "Strehl vs iteration", 2 * dy;
-    xytitles_vp, "Iteration", "", [ 0., 0.025 ];
+    if (disp) {
+      plsys, 2;
+      plg, strehlv(1 : k), itv(1 : k);
+      range, 0;
+      pltitle_vp, "Strehl vs iteration", 2 * dy;
+      xytitles_vp, "Iteration", "", [ 0., 0.025 ];
+    }
   }
-  plsys, 1;
-  animate, 0;
+  if (disp) {
+    plsys, 1;
+    animate, 0;
+  }
+  shm_write,my_shmid,"imav",&imav;
+  strehlv = strehlv(1:k-1);
+  shm_write,my_shmid,"strehlv",&strehlv;
   if (wait) sem_take(my_semid, 2);
 }
