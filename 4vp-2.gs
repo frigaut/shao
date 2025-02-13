@@ -1,11 +1,12 @@
 # Gist style sheet made by Yorick write_style function
 # Created: Wed Nov 13 20:26:18 2024
 # (4 coordinate systems)
+#  viewport= { 0.220000, 0.414000, 0.440000, 0.634000 },
 
 landscape= 0
 
 default= { legend= 0,
-  viewport= { 0.220000, 0.414000, 0.440000, 0.634000 },
+  viewport= { 0.170000, 0.384000, 0.410000, 0.624000 },
   ticks= {
 
     horiz= {
@@ -35,7 +36,7 @@ default= { legend= 0,
 
 system= { legend= "System 0" }
 system= { legend= "System 0",
-  viewport= { 0.446000, 0.630000, 0.440000, 0.624000 },
+  viewport= { 0.426000, 0.650000, 0.400000, 0.634000 },
   ticks= {
 
     horiz= {
@@ -64,7 +65,7 @@ system= { legend= "System 0",
     frameStyle= { color= 254, type= 1, width= 1.000000 }}}
 
 system= { legend= "System 0",
-  viewport= { 0.220000, 0.414000, 0.656000, 0.850000 },
+  viewport= { 0.160000, 0.394000, 0.656000, 0.890000 },
   ticks= {
 
     horiz= {
@@ -76,7 +77,7 @@ system= { legend= "System 0",
         orient= 0, alignH= 0, alignV= 0, opaque= 0 }}}}
 
 system= { legend= "System 0",
-  viewport= { 0.436000, 0.630000, 0.656000, 0.850000 },
+  viewport= { 0.416000, 0.650000, 0.656000, 0.890000 },
   ticks= {
 
     horiz= {

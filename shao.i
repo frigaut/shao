@@ -5,8 +5,13 @@ require, "yao.i";
 require, "svipc.i";
 require, "plvp.i";
 
-/******************* SHARED MEMORY INITS *****************/
-// Done when needed, e.g. aoloop()
+/******************* SHARED MEMORY TIPS *****************/
+// MACOS:
+// make sure you do:
+// sudo sysctl -w kern.sysv.shmmax=4294967296 kern.sysv.shmmni=256 kern.sysv.shmseg=128
+// kern.sysv.shmall=1048576 this should work for at least 64x64 systems
+// to clean up the shared memory and semaphores left open in case the process exited badly:
+// ipcs; ipcrm `ipcs | egrep '0x7809|0x0bad|0x7808' | awk '{print "-m " $2}'`; ipcrm `ipcs | egrep '0x7809|0x7dcb|0x0bad|0x7808' | awk '{print "-s " $2}'`; ipcs
 
 zoom = 64;
 /************************* INTRO  ************************/
@@ -155,8 +160,9 @@ func shwfs(wfs, pup, pha) {
   for (i = 1; i <= wfs.nxsub; i++) {
     for (j = 1; j <= wfs.nxsub; j++) {
       if ((*wfs.valid2)(i, j)) {
-        imlet =
-            im(1 + (i - 1) * wfs.ppsub : i * wfs.ppsub, 1 + (j - 1) * wfs.ppsub : j * wfs.ppsub);
+        imlet = im(1 + (i - 1) * wfs.ppsub
+                   : i * wfs.ppsub, 1 + (j - 1) * wfs.ppsub
+                   : j * wfs.ppsub);
         wfssig(++k, ) = cgwfs(imlet);
       }
     }
@@ -237,14 +243,12 @@ func aocalib(wfs, dm) {
   // do imat:
   write, format = "%s\n", "Measuring iMat...";
   dm.com = &(array(0., dm.nact));
-  imat = array(0., [ 2, wfs.nsub * 2, dm.nact ]);
   wfs.refmes = &(shwfs(wfs, pup, pup * 0));
 
   // preparing forks
   tic, 5;
-  // nforks = 4;
-  nforks = clip(dm.nact/200,1,nprocs());
-  write,format="Using %d forks for imat\n",nforks;
+  nforks = clip(dm.nact / 200, 1, nprocs());
+  write, format = "Using %d forks for imat\n", nforks;
   my_shmid = 0x78080000 | getpid();
   shm_init, my_shmid, slots = nforks;
   my_semid = 0x7dcb0000 | getpid();
@@ -252,9 +256,10 @@ func aocalib(wfs, dm) {
   // nactperfork = dm.nact / nforks;
   // a1 = indgen(1 : dm.nact : nactperfork)(1 : -1);
   // a2 = _(a1(2 :) - 1, dm.nact);
-  a1 = long(span(1,dm.nact,nforks+1)(:-1));
-  a2 = long(span(1,dm.nact,nforks+1)(2:)-1);
+  a1 = long(span(1, dm.nact, nforks + 1)( : -1));
+  a2 = long(span(1, dm.nact, nforks + 1)(2 :) - 1);
   a2(0) = dm.nact;
+  nact_per_piece = (a2 - a1 + 1);
   am_child = 0;
   for (nc = 1; nc <= nforks - 1; nc++) {
     if (fork() == 0) am_child = 1;
@@ -263,25 +268,29 @@ func aocalib(wfs, dm) {
   }
   write, format = "%d: Calibrating imat for actuators %d to %d (am_child=%d)\n", nc, a1(nc), a2(nc),
          am_child;
-  for (na = a1(nc); na <= a2(nc); na++) {
+  imat_piece = array(0., [ 2, wfs.nsub * 2, nact_per_piece(nc) ]);
+  for (i = 1; i <= nact_per_piece(nc); i++) {
+    na = i + a1(nc) - 1;
     *dm.com *= 0.;
     (*dm.com)(na) = dm.push4imat;
     pha = *dm_shape(dm).shape;
-    imat(, na) = shwfs(wfs, pup, pha) - (*wfs.refmes);
-    // if (debug > 5) { tv, *wfs.im; pause, 5; }
+    imat_piece(, i) = shwfs(wfs, pup, pha) - (*wfs.refmes);
   }
   // write imat piece
   if (am_child) {
-    shm_write, my_shmid, "imat" + totxt(nc), &imat;
+    shm_write, my_shmid, "imat_piece" + totxt(nc), &imat_piece;
     sem_give, my_semid, nc;
     quit;
   }
-  // else I am the parent, gather imat pieces
+  imat = array(0., [ 2, wfs.nsub * 2, dm.nact ]);
+  // fill in the piece calibrated from the main process:
+  imat(, a1(0) : a2(0)) = imat_piece;
+  // I am the parent, gather imat pieces
   for (nc = 1; nc <= nforks - 1; nc++) {
     sem_take, my_semid, nc;
   }
   for (nc = 1; nc <= nforks - 1; nc++) {
-    imat += shm_read(my_shmid, "imat" + totxt(nc));
+    imat(, a1(nc) : a2(nc)) = shm_read(my_shmid, "imat_piece" + totxt(nc));
   }
   write, format = "iMat acquisition: %f seconds\n", tac(5);
   shm_cleanup, my_shmid;
@@ -295,13 +304,13 @@ func aocalib(wfs, dm) {
   iext = where(aresp < (max(aresp) * wfs.threshresp));  // idx of actuators to extrapolate
   write, format = "%d actuators filtered out of %d;\n", numberof(iext), dm.nact;
   imatval = imat(, iaok); // imat for valid actuators
-  tic,5;
+  tic, 5;
   ev = SVdec(imatval, u, vt);
-  write,format="SVD of %dx%d imat took %.3f seconds\n",dimsof(imat)(2),dimsof(imat)(3),tac(5);
+  write, format = "SVD of %dx%d imat took %.3f seconds\n", dimsof(imat)(2), dimsof(imat)(3), tac(5);
   nev = numberof(ev);
   // error;
   if (sim.nfilt) { // number of filtered mode specified, prefer this.
-    w = indgen(nev-sim.nfilt);
+    w = indgen(nev - sim.nfilt);
   } else {
     w = where((ev / max(ev)) > sim.cond);
   }
@@ -314,15 +323,15 @@ func aocalib(wfs, dm) {
   cmat = transpose(imat);
   cmat(iaok, ) = cmatval;
   // manage extrapolated
-  for (i=1;i<=numberof(iext);i++) {
+  for (i = 1; i <= numberof(iext); i++) {
     *dm.com *= 0;
     (*dm.com)(iext(i)) = 1;
     (*dm.ashape)(*dm.wval) = *dm.com;
     dms = convol2d(*dm.ashape, *dm.ker4ext);
     coup = dms(*dm.wval);
-    coup(iext) = 0; // we're not extrapolating from extrapolated
+    coup(iext) = 0;    // we're not extrapolating from extrapolated
     coup /= sum(coup); // normalise
-    cmat(iext(i),) = cmat(+,)*coup(+);
+    cmat(iext(i), ) = cmat(+, ) * coup(+);
   }
   // fill structures
   dm.iaok = &iaok;
@@ -352,22 +361,27 @@ func bilin(ar, x1, dim) {
   return (1.0f - rx1) * ar1 + rx1 * ar2;
 }
 
-func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
+func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, dpi =, verb =, wait =) {
   /* DOCUMENT
   The loop
   */
   if (disp == []) disp = 0;
   if (wait == []) wait = 0;
+  dpi = (dpi ? dpi : 150);
   my_shmid = 0x78080000 | getpid();
   shm_init, my_shmid, slots = 10;
   my_semid = 0x7dcb0000 | getpid();
-  sem_init, my_semid, nums = 5;
+  sem_init, my_semid, nums = 10;
   // sem 0: WFS signal ready from aoloop()
   // sem 1: DM command / dm shape ready from aommul()
   // sem 2: End of loop (nit reached)
   // sem 3: Turbulence/phase screen ready from aoscreens()
+  // sem 4: Tell aoscreens() to proceed to next step
+  // sem 5: "go" signal to aommul()
+  // sem 6: "go" signal to aodisp()
+  // sem 7: aodisp stat results ready.
   // leak = 0.99;
-  ps = float(fits_read("~/.yorick/data/bigs1.fits") / sim.pupd^(5./6) * sturb);
+  ps = float(fits_read("~/.yorick/data/bigs1.fits") / sim.pupd ^ (5. / 6) * sturb);
   dmshape = pup * 0.;
   dm.com = &(array(0., dm.nact));
   imav = calpsf(pup, 0);
@@ -378,38 +392,54 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   avgstrehl = 0.;
   winkill;
   pause, 200;
-  // SHM DISPLAYS:
+  // SHM phase screens
   if (fork() == 0) {
-    // I am the child for display
-    dm = []; // free up some memory
-    // if (disp != 0) status = aodisp();
-    status = aodisp(disp); // we need this for telemetry + diagnostics anyway
-    if (debug) write, format = "%s\n", "Display fork quitting";
+    // I am the child for matrix mutiply
+    wfs = dm = []; // free up some memory
+    if (debug) write, format = "%s\n", "forking phase screens";
+    status = aoscreens();
+    if (debug) {
+      // pause, 100;
+      write, format = "%s\n", "Phase screen fork quitting";
+    }
     quit;
   }
   // SHM MMUL
   if (fork() == 0) {
     // I am the child for matrix mutiply
     wfs = []; // free up some memory
+    if (debug) write, format = "%s\n", "forking matrix multiply";
     status = aommul();
-    if (debug) write, format = "%s\n", "Matrix multiply fork quitting";
+    if (debug) {
+      // pause, 100;
+      write, format = "%s\n", "Matrix multiply fork quitting";
+    }
     quit;
   }
-  // SHM phase screens
+  // SHM DISPLAYS:
   if (fork() == 0) {
-    // I am the child for matrix mutiply
-    wfs = dm = []; // free up some memory
-    status = aoscreens();
-    if (debug) write, format = "%s\n", "Phase screen fork quitting";
+    // I am the child for display
+    dm = []; // free up some memory
+    // if (disp != 0) status = aodisp();
+    if (debug) write, format = "%s\n", "forking displays + telemetry";
+    status = aodisp(disp); // we need this for telemetry + diagnostics anyway
+    if (debug) {
+      // pause, 500;
+      write, format = "%s\n", "Display fork quitting";
+    }
     quit;
   }
   // else main aoloop, WFS function
   t2 = t3 = t4 = t5 = 0.;
   tic;
   // else I am the parent process, main loop
-  write,format="Starting loop with %d iterations\n",nit;
+  // pause, 500;
+  write, format = "Starting loop with %d iterations\n", nit;
   for (n = 1; n <= nit; n++) {
-    if ((debug)&&((n%100)==0)) write,format="\r%d out of %d",n,nit;
+    if ((debug) && ((n % 100) == 0)) write, format = "\r%d out of %d", n, nit;
+    iteration = [n];
+    shm_write, my_shmid, "iteration", &iteration; //, publish = 1;
+    status = sem_give(my_semid, 5);               // "go" signal to aommul()
     tic, 2;
     sem_take, my_semid, 3; // wait for aoscreens() to be ready
     turb = shm_read(my_shmid, "turb");
@@ -422,26 +452,24 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
     t3 += tac(3);                                     // WFSing
     tic, 4;
     // read from aommul the previous dm update commands:
-    sem_take, my_semid, 1; // wait for ready signal
+    sem_take, my_semid, 1; // wait for aommul() ready signal
     dmshape = shm_read(my_shmid, "dmshape");
     // write signal on shm for aommul to compute the next DM command update
     shm_write, my_shmid, "wfs_signal", &sig;
     sem_give, my_semid, 0;
     if (n == nit) {
-      sem_give, my_semid, 2; // for aommul
-      sem_give, my_semid, 2; // for aodisp, to exit while(1)
+      // if (debug) write, format = "\n%s\n", "n == nit, telling fork to bail";
+      // sem_give, my_semid, 5; // for aommul
+      // sem_give, my_semid, 2; // for aodisp, to exit while(1)
       if (wait) {
         if (wait < 0) status = hitReturn();
         if (wait > 0) pause, long(wait * 1000);
         sem_give, my_semid, 2; // for aodisp, now to exit
       }
     }
-    // if (disp) {
-      data = float(*wfs.im);
-      shm_write, my_shmid, "wfsim", &data;
-      iteration = [n];
-      shm_write, my_shmid, "iteration", &iteration, publish = 1;
-    // }
+    data = float(*wfs.im);
+    shm_write, my_shmid, "wfsim", &data;
+    status = sem_give(my_semid, 6); // "go" signal to aodisp()
     t4 += tac(4);
   }
   extern nitps;
@@ -450,22 +478,26 @@ func aoloop(wfs, dm, gain, nit, sturb, noise, disp =, verb =, wait =) {
   write, format = "\n%s: %.1f it/s, ", sim.parname, nitps;
   write, format = "tur=%.1fμs, wfs=%.1fμs, shm=%.1fμs (%.1f)\n", t2 * 1e6 / nit, t3 * 1e6 / nit,
          t4 * 1e6 / nit, nit / (t2 + t3 + t4);
-  // give some time for child to quit (prompt)
-  pause, 100;
 
-  strehlv = shm_read(my_shmid,"strehlv");
-  imav = shm_read(my_shmid,"imav");
+  sem_take, my_semid, 7; // stat results ready.
+  strehlv = shm_read(my_shmid, "strehlv");
+  imav = shm_read(my_shmid, "imav");
   // fill res structure
   res = ress();
-  res.strehlv = &strehlv;
-  res.avstrehl = avg(strehlv(10:));
+  w = where(strehlv != 0);
+  if (numberof(w) == 0)
+    write, format = "%s\n", "Not enough data points for Strehl estimate";
+  else {
+    res.strehlv = &strehlv;
+    res.avstrehl = avg(strehlv);
+  }
   res.imav = &imav;
 
-  shm_free, my_shmid, "wfsim";
   shm_free, my_shmid, "iteration";
   shm_free, my_shmid, "turb";
   shm_free, my_shmid, "dmshape";
   shm_free, my_shmid, "wfs_signal";
+  shm_free, my_shmid, "wfsim";
   shm_free, my_shmid, "strehlv";
   shm_free, my_shmid, "imav";
   shm_cleanup, my_shmid;
@@ -497,12 +529,16 @@ func aommul(void) {
   */
   dmshape = float(pup * 0);
   eq_nocopy, cmat, *sim.cmat;
+  s = sem_take(my_semid, 5); // wait for "go" signal
+  iter = 0;
   while (1) {
     // publish result:
     data = float(dmshape);
     shm_write, my_shmid, "dmshape", &data;
     // and give semaphore:
     sem_give, my_semid, 1;
+    // wait for signal from aoloop() that next wfs_signal is ready
+    if (iter == nit) break;
     s = sem_take(my_semid, 0);
     // slopes ready, fetch them:
     sig = shm_read(my_shmid, "wfs_signal");
@@ -512,9 +548,8 @@ func aommul(void) {
     *dm.com = sim.leak * *dm.com + gain * com_update; // Update DM command.
     *dm.com -= avg(*dm.com);
     dmshape = float(*dm_shape(dm).shape);
-    // check if "end" semaphore has been set
-    s = sem_take(my_semid, 2, wait = 0);
-    if (s == 0) break;
+    iter = shm_read(my_shmid, "iteration")(1); //, subscribe = 20000)(1);
+    if (debug > 5) write, format = "iter (aommul) = %d\n", iter;
   }
 }
 
@@ -529,28 +564,31 @@ func aodisp(disp) {
     winkill; // we really don't want window migrating across the fork.
     pltitle_height = 7;
     dy = 0.005;
-    window, style = "4vp-2.gs", dpi = 180, wait = 1;
-    system,"niri msg action focus-column-left";
-    pause, 20;
+    window, style = "4vp-2.gs", dpi = dpi, wait = 1;
+    // system,"niri msg action focus-column-left";
     plsys, 1;
     animate, 1;
-  } else pause,50;
+  }
   k = 0;
-  imav = array(0.,[2,2*sim.dim,2*sim.dim]);
+  imav = array(0., [ 2, 2 * sim.dim, 2 * sim.dim ]);
   if (zoom > sim.dim) zoom = sim.dim;
   tic;
+  status = sem_take(my_semid, 6); // wait for "go" signal
   while (1) {
     k++;
-    // write,format="k=%d\n",k;
-    // this one will be set to 0 to request exit:
-    s = sem_take(my_semid, 2, wait = 0);
-    // write,format="s=%d\n",s;
-    if (s == 0) break;
+    if (k > nit) break;
+    if (debug > 5) write, format = "k=%d\n", k;
+    // this one will be set to 1 to request exit:
+    // s = sem_take(my_semid, 2, wait = 0);
+    // write,format="aodisp() s=%d\n",s;
+    // if (s == 1) break;
 
     // Read some stuff from shm
-    iter = shm_read(my_shmid, "iteration", subscribe = 20000)(1);
-    // write,format="iter=%d\n",iter;
-    if (iter == -1) break;
+    iter = shm_read(my_shmid, "iteration")(1); //, subscribe = 20000)(1);
+    // iter = shm_read(my_shmid, "iteration")(1);
+    if (debug > 5) write, format = "iter=%d, k=%d\n", iter, k;
+    // write,format="aodisp() iter=%d\n",iter;
+    if (iter == nit) break;
     wfsim = shm_read(my_shmid, "wfsim");
     turb = shm_read(my_shmid, "turb");
     dmshape = shm_read(my_shmid, "dmshape");
@@ -561,12 +599,14 @@ func aodisp(disp) {
     if (disp) {
       plsys, 3;
       pli, wfsim;
-      pltitle_vp, swrite(format = "WFS(%.2fum), it=%d, it/s=%.1f", wfs.lambda*1e6, iter, iter / tac()), dy;
+      pltitle_vp,
+          swrite(format = "WFS(%.2fum), it=%d, it/s=%.1f", wfs.lambda * 1e6, iter, iter / tac()),
+          dy;
     }
 
     // PSF and Strehl
     pha = turb - dmshape;
-    pha *= (wfs.lambda/sim.imlambda);
+    pha *= (wfs.lambda / sim.imlambda);
     im = calpsf(pup, pha);
     imav += im;
     if (disp) {
@@ -577,7 +617,11 @@ func aodisp(disp) {
     itv(k) = iter;
     strehlv(k) = strehl;
     avgstrehl += strehl;
-    if (disp) pltitle_vp, swrite(format = "S(%.2fum)=%.1f%%, Savg=%.1f%%", sim.imlambda*1e6, strehl, avgstrehl / k), dy;
+    if (disp)
+      pltitle_vp,
+          swrite(format = "S(%.2fum)=%.1f%%, Savg=%.1f%%", sim.imlambda * 1e6, strehl,
+                 avgstrehl / k),
+          dy;
 
     // Residual phase
     if (disp) {
@@ -600,8 +644,12 @@ func aodisp(disp) {
     plsys, 1;
     animate, 0;
   }
-  shm_write,my_shmid,"imav",&imav;
-  strehlv = strehlv(1:k-1);
-  shm_write,my_shmid,"strehlv",&strehlv;
+  shm_write, my_shmid, "imav", &imav;
+  // write, format = "k=%d\n", k;
+  strehlv = strehlv(1 : k - 1);
+  shm_write, my_shmid, "strehlv", &strehlv;
+  // tell the main aoloop() process that the stat data are ready:
+  sem_give, my_semid, 7;
+  // and keep the graphic window up if requested:
   if (wait) sem_take(my_semid, 2);
 }

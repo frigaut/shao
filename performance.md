@@ -131,3 +131,15 @@ sh32.par: 198.8 it/s, tur=64.7μs, wfs=4922.0μs, shm=41.5μs (198.9)
 sh40.par: 198.0 it/s, tur=64.7μs, wfs=4941.0μs, shm=41.5μs (198.1)
 sh64.par: 40.9 it/s, tur=253.6μs, wfs=24040.6μs, shm=144.4μs (40.9)
 ```
+
+Version adapted to macos, running on the m4 mac mini:
+```ad-note
+sh6.par: 4555.3 it/s, tur=9.3μs, wfs=179.9μs, shm=20.9μs (4759.2)
+sh8.par: 3099.1 it/s, tur=10.8μs, wfs=280.0μs, shm=23.6μs (3180.6)
+test.par: 1583.2 it/s, tur=14.3μs, wfs=579.7μs, shm=30.9μs (1600.5)
+sh16.par: 1120.3 it/s, tur=15.8μs, wfs=836.0μs, shm=34.0μs (1129.0)
+sh32.par: 274.8 it/s, tur=56.6μs, wfs=3498.1μs, shm=78.0μs (275.3)
+sh40.par: 278.2 it/s, tur=49.9μs, wfs=3468.3μs, shm=69.7μs (278.7)
+sh64.par: 59.7 it/s, tur=230.3μs, wfs=16193.1μs, shm=313.9μs (59.7)
+```
+quite a nice improvement (overall close to 150% of the M2)

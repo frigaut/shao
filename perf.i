@@ -1,4 +1,4 @@
-calib = 0;
+calib = 1;
 
 require,"shao.i";
 func doit(void) {
@@ -9,6 +9,7 @@ func doit(void) {
       aoread,"examples/"+prefix(nn)+".par";
       aocalib,wfs,dm;
       shaosave,prefix(nn);
+      aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
     } else {
       shaorestore,prefix(nn);
       aoloop,wfs,dm,gain,nit,turb,noise,disp=disp;
